@@ -17,7 +17,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import io.github.unidentified24.spock.playback.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,10 +51,8 @@ object SongPlayer {
     private val sourceCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     // ── Lossless (SpotiFLAC) ──
-    // When enabled, playback first tries to resolve a lossless FLAC stream (Tidal/
-    // Amazon via SpotiFLAC's free community proxies) for the current track and only
-    // falls back to YouTube if no FLAC is available or the proxies are throttled.
-    // Trades a little first-tap latency for true lossless audio.
+    // Enabled FLAC sources compete with the other providers. First usable result
+    // wins; a slower FLAC lookup never holds up or replaces current playback.
     @Volatile var losslessStreaming = true
     @Volatile var losslessHiRes = true
 
@@ -65,7 +65,7 @@ object SongPlayer {
 
     // ── Deezer ──
     // When enabled and a Deezer account is logged in (ARL stored), playback tries
-    // Deezer FIRST (ISRC → Deezer track → encrypted CDN stream, decrypted on the
+    // Deezer concurrently (ISRC → Deezer track → encrypted CDN stream, decrypted on the
     // fly by DeezerDataSource). Quality follows the account tier: free → MP3 128,
     // Premium → MP3 320 / FLAC. Falls back to SpotiFLAC/YouTube on any miss.
     @Volatile var deezerEnabled = true
@@ -226,7 +226,12 @@ object SongPlayer {
         qualityCache.remove(song)
     }
 
+    private val playbackLookups = java.util.concurrent.ConcurrentHashMap.newKeySet<kotlinx.coroutines.Job>()
+    private var playRequestJob: kotlinx.coroutines.Job? = null
+
     fun playSong(song: String, context: Context) {
+        playRequestJob?.cancel()
+        playbackLookups.toList().forEach { it.cancel() }
         val appContext = context.applicationContext
         appCtx = appContext
         currentRequest = song
@@ -275,12 +280,8 @@ object SongPlayer {
             }
             Log.w(TAG, "web playback on but no Spotify id for query: $song — using fallback engine")
         }
-        scope.launch {
+        playRequestJob = scope.launch {
             try {
-                if (wantsQuickStart(song, appContext)) {
-                    quickStartThenUpgrade(song, appContext)
-                    return@launch
-                }
                 val streamUrl = resolveStreamUrl(song, appContext, forPlayback = true) ?: run {
                     // Tell the user instead of silently leaving the request on.
                     if (currentRequest == song) withContext(Dispatchers.Main) {
@@ -297,6 +298,8 @@ object SongPlayer {
                 // A newer tap superseded this one while we were resolving — drop it.
                 if (currentRequest != song) return@launch
                 startStream(song, streamUrl, appContext)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "playSong failed for query: $song", e)
             }
@@ -317,191 +320,14 @@ object SongPlayer {
             player!!.playWhenReady = true
         }
         startPositionWatch()
-        // Quick-start songs trigger it after their own upgrade instead.
-        if (!wantsQuickStart(song, appContext)) soulseekLookahead(appContext)
+        // Keep the winning source. Other lookups have already been cancelled.
     }
-
-    private fun streamFailed(song: String, appContext: Context) {
-        if (currentRequest != song) return
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            android.widget.Toast.makeText(
-                appContext, "Couldn't find a playable stream for this track", android.widget.Toast.LENGTH_SHORT,
-            ).show()
-            onStreamFailed?.invoke(song)
-        }
-    }
-
-    // Lossless lookups take ~20 s against ~4 s for YouTube, so a fresh lossless track
-    // starts on YouTube and switches over when the FLAC is ready.
-    private fun wantsQuickStart(song: String, ctx: Context): Boolean =
-        losslessStreaming && youtubeEnabled &&
-            io.github.unidentified24.spock.data.preferences.currentStreamingQuality(ctx).lossless &&
-            !song.startsWith("content://") && !song.startsWith("file://") &&
-            !streamCache.containsKey(song) &&
-            io.github.unidentified24.spock.data.preferences.downloadedPathForQuery(ctx, song) == null &&
-            alternativeStreamForPlayback(song, ctx) == null &&
-            (trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)) != null
 
     private fun soulseekOn(ctx: Context): Boolean =
         soulseekEnabled && io.github.unidentified24.spock.data.preferences.isSoulseekEnabled(ctx)
 
     private fun soulseekKey(song: String): String =
         trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song) ?: song.hashCode().toUInt().toString()
-
-    // One look-ahead at a time; the client moves one file at a time anyway.
-    private val lookaheadLock = kotlinx.coroutines.sync.Mutex()
-
-    /**
-     * Fetch the next queued track's FLAC from Soulseek while this one plays, so it
-     * starts lossless instead of upgrading a minute in. Only the next track: a
-     * skipped song's file is wasted data.
-     */
-    private fun soulseekLookahead(ctx: Context) {
-        if (!soulseekOn(ctx) || !losslessStreaming || !youtubeEnabled) return
-        if (!io.github.unidentified24.spock.data.preferences.currentStreamingQuality(ctx).lossless) return
-        val state = boundState ?: return
-        if (lookaheadLock.isLocked) return
-        scope.launch {
-            lookaheadLock.withLock {
-                val next = withContext(Dispatchers.Main) {
-                    val q = state.queue.value
-                    val cur = q.indexOfFirst { it.id == state.songId.value }
-                    q.getOrNull(cur + 1)?.takeIf { cur >= 0 }
-                } ?: return@withLock
-                val query = next.url
-                if (io.github.unidentified24.spock.data.preferences.downloadedPathForQuery(ctx, query) != null) return@withLock
-                val key = soulseekKey(query)
-                if (io.github.unidentified24.spock.soulseek.SoulseekSource.cached(ctx, key) != null) return@withLock
-                val info = losslessTrackInfo(query)
-                if (info.title.isBlank() || info.artist.isBlank()) return@withLock
-                Log.d(TAG, "look-ahead: fetching ${info.title} from Soulseek")
-                runCatching { io.github.unidentified24.spock.soulseek.SoulseekSource.flac(ctx, key, info.title, info.artist, info.durationSec) }
-            }
-        }
-    }
-
-    private fun isLosslessSource(song: String): Boolean =
-        sourceCache[song]?.startsWith("Lossless") == true || qualityCache[song] == "FLAC"
-
-    private suspend fun quickStartThenUpgrade(song: String, ctx: Context) = kotlinx.coroutines.coroutineScope {
-        val quality = io.github.unidentified24.spock.data.preferences.currentStreamingQuality(ctx)
-        val best = async { resolveStreamUrl(song, ctx, allowYouTube = false) }
-        val quick = async { resolveYtPlayback(song, quality.audioQuality, ctx) }
-        val bestFirst = kotlinx.coroutines.selects.select<Boolean> {
-            best.onAwait { true }
-            quick.onAwait { false }
-        }
-        // Lossless was ready first: play it straight away.
-        val early = if (bestFirst) best.await()?.takeIf { isLosslessSource(song) } else null
-        if (early != null) {
-            quick.cancel()
-            currentSource = sourceCache[song] ?: currentSource
-            currentQuality = qualityCache[song].orEmpty()
-            startStream(song, early, ctx, streamMimeType(early, sourceCache[song].orEmpty()))
-            return@coroutineScope
-        }
-        val fast = quick.await()
-        if (currentRequest != song) return@coroutineScope
-        if (fast != null) {
-            currentSource = "YouTube"
-            currentQuality = ytQualityLabel(fast)
-            startStream(song, fast.streamUrl, ctx)
-        }
-        val better = best.await()
-        // This song's lookup is done; use the time left for the next one.
-        soulseekLookahead(ctx)
-        if (currentRequest != song) return@coroutineScope
-        when {
-            better != null && isLosslessSource(song) && fast != null -> swapToLossless(song, better)
-            better != null && fast == null -> startStream(song, better, ctx, streamMimeType(better, sourceCache[song].orEmpty()))
-            fast == null -> streamFailed(song, ctx)
-            else -> {
-                // No lossless copy: remember the YouTube stream so a replay starts at once.
-                streamCache[song] = fast.streamUrl
-                sourceCache[song] = "YouTube"
-                qualityCache[song] = ytQualityLabel(fast)
-            }
-        }
-    }
-
-    /**
-     * Replace the quick-start stream with the lossless one without a gap: the FLAC
-     * loads muted on a second player a few seconds ahead, starts when playback gets
-     * there, and a short crossfade (the crossfade engine) hides any small offset
-     * between the two masters. Falls back to a plain switch if it can't line up.
-     */
-    private suspend fun swapToLossless(song: String, url: String) {
-        val ctx = appCtx ?: return
-        val mime = streamMimeType(url, sourceCache[song].orEmpty())
-        val primary = player ?: return
-        val playing = withContext(Dispatchers.Main) { primary.playWhenReady && primary.isPlaying }
-        if (currentRequest != song || isCrossfading) return
-        if (!playing || !seamlessSwap(song, url, mime, primary, ctx)) hardSwap(song, url, mime)
-    }
-
-    private suspend fun seamlessSwap(
-        song: String, url: String, mime: String?, primary: ExoPlayer, ctx: Context,
-    ): Boolean {
-        val leadMs = 4_000L
-        val (sp, sf) = withContext(Dispatchers.Main) { createPlayerWithFilter(ctx, handleAudioFocus = false) }
-        val startAt = withContext(Dispatchers.Main) { primary.currentPosition + leadMs }
-        isCrossfading = true // user actions now cancel this via cancelCrossfade()
-        secondaryPlayer = sp
-        secondaryPlayerFilter = sf
-        pendingNextSong = null // same song: no queue/UI change when it completes
-        fun stillOn() = currentRequest == song && secondaryPlayer === sp && player === primary
-        withContext(Dispatchers.Main) {
-            sp.setMediaItem(buildMediaItem(url, mime), startAt)
-            sp.volume = 0f
-            sp.playWhenReady = false
-            sp.prepare()
-        }
-        // Wait until the FLAC is buffered at startAt, while the stream plays toward it.
-        val ready = kotlinx.coroutines.withTimeoutOrNull(leadMs - 500) {
-            while (withContext(Dispatchers.Main) { sp.playbackState != Player.STATE_READY }) {
-                if (!stillOn()) return@withTimeoutOrNull false
-                delay(50)
-            }
-            true
-        } == true
-        if (!ready || !stillOn()) {
-            if (secondaryPlayer === sp) cancelCrossfade() // releases sp, restores state
-            return false
-        }
-        // Start it the moment playback reaches startAt (a pause meanwhile: plain switch).
-        while (stillOn()) {
-            val (pos, playingNow) = withContext(Dispatchers.Main) { primary.currentPosition to primary.isPlaying }
-            if (!playingNow) {
-                cancelCrossfade()
-                return false
-            }
-            if (pos >= startAt - 15) break
-            delay(10)
-        }
-        if (!stillOn()) return false
-        withContext(Dispatchers.Main) { sp.playWhenReady = true }
-        preloadedNext = null // the promoted player starts without anything queued ahead
-        performCrossfade(400, djMode = false)
-        currentSource = sourceCache[song] ?: currentSource
-        currentQuality = qualityCache[song].orEmpty()
-        Log.d(TAG, "switched seamlessly to $currentSource for: $song")
-        return true
-    }
-
-    /** Plain switch at the same position (used when paused or if lining up failed). */
-    private suspend fun hardSwap(song: String, url: String, mime: String?) = withContext(Dispatchers.Main) {
-        val p = player ?: return@withContext
-        if (currentRequest != song || isCrossfading) return@withContext
-        val pos = p.currentPosition
-        val playing = p.playWhenReady
-        preloadedNext = null // setMediaItem replaces anything queued ahead
-        p.setMediaItem(buildMediaItem(url, mime), pos)
-        p.prepare()
-        p.playWhenReady = playing
-        currentSource = sourceCache[song] ?: currentSource
-        currentQuality = qualityCache[song].orEmpty()
-        Log.d(TAG, "switched to $currentSource at ${pos / 1000}s for: $song")
-    }
 
     // Build a MediaItem carrying the current track's metadata so the system media
     // notification (MediaSession) shows the right title / artist / artwork.
@@ -559,7 +385,7 @@ object SongPlayer {
         if (losslessStreaming && io.github.unidentified24.spock.data.preferences.currentStreamingQuality(appContext).lossless) return
         // Deezer resolves a fresh CDN url per play; a YouTube prefetch cached under
         // the same key would shadow it, so skip prefetch entirely when Deezer is on.
-        if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerEnabled(appContext)) return
+        if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) return
         scope.launch {
             val url = runCatching { resolveStreamUrl(song, appContext) }.getOrNull()
             if (url != null) cacheIntro(url, appContext)
@@ -635,6 +461,18 @@ object SongPlayer {
         forPlayback: Boolean = false,
         allowYouTube: Boolean = true,
     ): String? {
+        val job = currentCoroutineContext()[kotlinx.coroutines.Job]
+        if (forPlayback && job != null) playbackLookups.add(job)
+        return try { resolveStreamUrlInternal(song, appContext, forPlayback, allowYouTube) }
+        finally { if (forPlayback && job != null) playbackLookups.remove(job) }
+    }
+
+    private suspend fun resolveStreamUrlInternal(
+        song: String,
+        appContext: Context,
+        forPlayback: Boolean = false,
+        allowYouTube: Boolean = true,
+    ): String? {
         // Imported local files: the play query IS the file's content:// / file:// URI.
         // ExoPlayer plays it directly (FLAC/MP3/WAV/… via its built-in extractors).
         if (song.startsWith("content://") || song.startsWith("file://")) {
@@ -680,11 +518,11 @@ object SongPlayer {
             // Source choices take effect immediately; never let a URL cached under the
             // previous choice silently keep using that provider.
             val cachedSource = sourceCache[song]
-            val selectedSource = io.github.unidentified24.spock.data.preferences.getPrimaryMusicSource(appContext)
             val sourceStillSelected = when (cachedSource) {
-                "Deezer" -> selectedSource == io.github.unidentified24.spock.data.preferences.MusicSource.DEEZER
-                "YouTube" -> selectedSource != io.github.unidentified24.spock.data.preferences.MusicSource.DEEZER
-                else -> true // local, downloaded, alternative and lossless sources are independent
+                "Deezer" -> deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)
+                "YouTube" -> youtubeEnabled && allowYouTube
+                else -> cachedSource?.startsWith("Lossless") != true ||
+                    (losslessStreaming && io.github.unidentified24.spock.data.preferences.currentStreamingQuality(appContext).lossless)
             }
             if (!sourceStillSelected) {
                 invalidateResolvedStream(song)
@@ -711,110 +549,61 @@ object SongPlayer {
             }
         }
 
-        // Deezer — preferred, but when Lossless is selected a FREE Deezer account only
-        // yields MP3. In that case we HOLD the MP3 as a fallback and try the real FLAC
-        // sources first, so lossless isn't silently pre-empted by Deezer MP3.
-        var heldDeezer: io.github.unidentified24.spock.deezer.DeezerSource.Result.Success? = null
-        if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerEnabled(appContext)) {
-            val spotifyId = trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)
-            val r = kotlinx.coroutines.withTimeoutOrNull(12_000) {
-                io.github.unidentified24.spock.deezer.DeezerSource.resolve(
-                    appContext,
-                    spotifyId = spotifyId,
-                    isrc = null,
+        val spotifyId = trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song)
+        val lookups = mutableListOf<StreamLookup<ResolvedStream>>()
+        fun lookup(resolve: suspend () -> ResolvedStream?) {
+            val connections = LookupConnections()
+            lookups += StreamLookup(cancel = { connections.close() }) {
+                withContext(connections) { resolve()?.takeIf { it.url.isNotBlank() } }
+            }
+        }
+        if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) {
+            lookup {
+                val result = io.github.unidentified24.spock.deezer.DeezerSource.resolve(
+                    appContext, spotifyId,
+                    isrc = metadataRegistry[song]?.isrc?.takeIf { it.isNotBlank() },
                     searchQuery = searchTextForPlayback(song),
                     expectedDurationSec = (durationRegistry[song] ?: 0) / 1000,
                 )
-            }
-            if (r is io.github.unidentified24.spock.deezer.DeezerSource.Result.Success) {
-                // At High, YouTube Opus (~160 kbps) beats a free account's MP3 128 (#66).
-                val belowYouTube = r.lowBitrate && youtubeEnabled &&
-                    quality.audioQuality == com.metrolist.music.constants.AudioQuality.HIGH
-                if (r.mimeFlac || (!quality.lossless && !belowYouTube)) {
-                    Log.d(TAG, "deezer ${r.qualityLabel} for: $song")
-                    if (forPlayback) { currentSource = "Deezer"; currentQuality = r.qualityLabel }
-                    streamCache[song] = r.uri
-                    sourceCache[song] = "Deezer"
-                    qualityCache[song] = r.qualityLabel
-                    return r.uri
-                }
-                heldDeezer = r // MP3 only: try FLAC (Lossless) or YouTube (MP3 128 at High) first.
-                Log.d(TAG, "deezer only ${r.qualityLabel}; trying better sources first for: $song")
-            } else {
-                Log.d(TAG, "deezer miss ($r), continuing for: $song")
-            }
-        }
-
-        // Lossless FLAC: SpotiFLAC gated (if verified) + Tidal/community, ISRC-matched.
-        if (losslessStreaming && quality.lossless) {
-            (trackIdRegistry[song] ?: spotifyTrackIdForPlayback(song))?.let { spotifyId ->
-                val r = kotlinx.coroutines.withTimeoutOrNull(15_000) {
-                    io.github.unidentified24.spock.lossless.LosslessSource.resolve(appContext, spotifyId, losslessTrackInfo(song), losslessHiRes)
-                }
-                if (r is io.github.unidentified24.spock.lossless.LosslessSource.Result.Success) {
-                    val flacQuality = "FLAC ${r.track.quality}-bit"
-                    if (forPlayback) {
-                        currentSource = "Lossless • ${r.track.provider}"
-                        currentQuality = flacQuality
-                    }
-                    streamCache[song] = r.track.url
-                    sourceCache[song] = "Lossless • ${r.track.provider}"
-                    qualityCache[song] = flacQuality
-                    return r.track.url
-                } else {
-                    Log.d(TAG, "lossless miss ($r) for: $song")
+                (result as? io.github.unidentified24.spock.deezer.DeezerSource.Result.Success)?.let {
+                    ResolvedStream(it.uri, "Deezer", it.qualityLabel)
                 }
             }
         }
-
-        // Soulseek (P2P) when the lossless servers have nothing. A peer can take a
-        // minute, so only for the background upgrade, while another stream plays.
-        if (soulseekOn(appContext) && !allowYouTube && quality.lossless) {
-            val info = losslessTrackInfo(song)
-            val key = soulseekKey(song)
-            if (info.title.isNotBlank() && info.artist.isNotBlank()) {
-                val file = runCatching {
-                    io.github.unidentified24.spock.soulseek.SoulseekSource.flac(appContext, key, info.title, info.artist, info.durationSec)
-                }.getOrNull()
-                if (file != null) {
-                    val url = android.net.Uri.fromFile(file).toString()
-                    streamCache[song] = url
-                    sourceCache[song] = "Lossless • Soulseek"
-                    qualityCache[song] = "FLAC"
-                    return url
+        if (losslessStreaming && quality.lossless && spotifyId != null) {
+            lookup {
+                val result = io.github.unidentified24.spock.lossless.LosslessSource.resolve(
+                    appContext, spotifyId, losslessTrackInfo(song), losslessHiRes)
+                (result as? io.github.unidentified24.spock.lossless.LosslessSource.Result.Success)?.let {
+                    ResolvedStream(it.track.url, "Lossless • ${it.track.provider}", "FLAC ${it.track.quality}-bit")
                 }
             }
         }
-
-        fun useHeldDeezer(r: io.github.unidentified24.spock.deezer.DeezerSource.Result.Success): String {
-            Log.d(TAG, "using Deezer MP3 fallback for: $song")
-            if (forPlayback) { currentSource = "Deezer"; currentQuality = r.qualityLabel }
-            streamCache[song] = r.uri
-            sourceCache[song] = "Deezer"
-            qualityCache[song] = r.qualityLabel
-            return r.uri
+        if (youtubeEnabled && allowYouTube) {
+            lookup {
+                resolveYtPlayback(song, quality.audioQuality, appContext)?.let {
+                    ResolvedStream(it.streamUrl, "YouTube", ytQualityLabel(it))
+                }
+            }
         }
-        // Deezer MP3 320 (held above) before YouTube; MP3 128 only if YouTube fails.
-        heldDeezer?.takeIf { !it.lowBitrate }?.let { return useHeldDeezer(it) }
-        if (!youtubeEnabled || !allowYouTube) {
-            if (!youtubeEnabled) Log.w(TAG, "YouTube fallback disabled — no stream for: $song")
-            return heldDeezer?.let(::useHeldDeezer)
+        val winner = firstPlayable(lookups) ?: return null
+        currentCoroutineContext().ensureActive()
+        if (winner.url.isBlank()) return null
+        // Only this coordinator can publish provider metadata or cache a winning URL.
+        if (forPlayback) withContext(Dispatchers.Main) {
+            if (currentRequest == song) {
+                currentSource = winner.source
+                currentQuality = winner.quality
+            }
         }
-        if (forPlayback) {
-            currentSource = "YouTube"
-            // Clear the previous track's quality so a failed resolve can't leave
-            // a stale "FLAC 24-bit" badge on a YouTube stream.
-            currentQuality = ""
-        }
-        val playback = resolveYtPlayback(song, quality.audioQuality, appContext)
-            ?: return heldDeezer?.let(::useHeldDeezer)
-        val ytQuality = ytQualityLabel(playback)
-        if (forPlayback) currentQuality = ytQuality
-        streamCache[song] = playback.streamUrl
-        sourceCache[song] = "YouTube"
-        qualityCache[song] = ytQuality
-        return playback.streamUrl
+        currentCoroutineContext().ensureActive()
+        streamCache[song] = winner.url
+        sourceCache[song] = winner.source
+        qualityCache[song] = winner.quality
+        return winner.url
     }
+
+    private data class ResolvedStream(val url: String, val source: String, val quality: String)
 
     // e.g. "OPUS 141 kbps" from the chosen adaptive format.
     private fun ytQualityLabel(playback: YTPlayerUtils.PlaybackData): String {
@@ -1361,7 +1150,6 @@ object SongPlayer {
             if (p.currentMediaItemIndex > 0) p.removeMediaItems(0, p.currentMediaItemIndex)
             appCtx?.let { ctx ->
                 scope.launch { resolveStreamUrl(query, ctx, forPlayback = true) } // badge
-                soulseekLookahead(ctx)
             }
             onPreloadedTrackStarted?.invoke(query)
         }
@@ -1486,6 +1274,8 @@ object SongPlayer {
     }
 
     fun stop() {
+        playRequestJob?.cancel()
+        playbackLookups.toList().forEach { it.cancel() }
         cancelCrossfade()
         player?.stop()
     }
@@ -1497,6 +1287,8 @@ object SongPlayer {
     }
 
     fun release() {
+        playRequestJob?.cancel()
+        playbackLookups.toList().forEach { it.cancel() }
         positionWatchJob?.cancel()
         cancelCrossfade()
         player?.release()

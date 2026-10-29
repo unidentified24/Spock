@@ -42,3 +42,7 @@ fun getDeezerTier(context: Context): String =
 fun setDeezerTier(context: Context, tier: String) {
     prefs(context).edit().putString(KEY_TIER, tier).apply()
 }
+
+/** A configured account competes even when YouTube is the saved primary preference. */
+fun isDeezerRaceEnabled(context: Context): Boolean =
+    getDeezerArl(context) != null && prefs(context).getBoolean(KEY_ENABLED, true)

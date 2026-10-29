@@ -77,7 +77,7 @@ internal object LosslessRegistry {
         cached?.let { if (now - cachedAt < CACHE_TTL_MS) return it }
         if (now - failedAt < FAILURE_RETRY_MS) return cached
         return runCatching {
-            val conn = URL("$GIST_URL?t=$now").openConnection() as HttpURLConnection
+            val conn = (URL("$GIST_URL?t=$now").openConnection() as HttpURLConnection).also { io.github.unidentified24.spock.playback.LookupConnections.track(it) }
             val text = try {
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
@@ -92,6 +92,7 @@ internal object LosslessRegistry {
             cachedAt = now
             json
         }.onFailure {
+            io.github.unidentified24.spock.playback.LookupConnections.checkActive()
             // Remember the miss: a resolve calls this several times, and each retry
             // would spend up to 16 s of the play-time lossless budget on timeouts.
             failedAt = now

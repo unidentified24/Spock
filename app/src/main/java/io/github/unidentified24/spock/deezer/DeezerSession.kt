@@ -218,6 +218,7 @@ internal object DeezerSession {
     private fun callPublicApi(path: String): JSONObject {
         val url = URL("https://api.deezer.com/$path")
         val conn = (url.openConnection() as HttpURLConnection).apply {
+                io.github.unidentified24.spock.playback.LookupConnections.track(this)
             requestMethod = "GET"
             setRequestProperty("Accept-Language", "en,*")
             connectTimeout = 20_000
@@ -233,6 +234,7 @@ internal object DeezerSession {
         var conn: HttpURLConnection? = null
         return try {
             conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                io.github.unidentified24.spock.playback.LookupConnections.track(this)
                 connectTimeout = 20_000
                 readTimeout = 20_000
                 doOutput = true

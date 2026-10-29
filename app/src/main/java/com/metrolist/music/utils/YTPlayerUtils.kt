@@ -562,7 +562,7 @@ object YTPlayerUtils {
                 requestBuilder.header(name, value)
             }
 
-            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+            io.github.unidentified24.spock.playback.LookupConnections.trackCall(httpClient.newCall(requestBuilder.build())).execute().use { response ->
                 val code = response.code
                 val mediaType = response.header("Content-Type").orEmpty()
                 val accepted = (response.isSuccessful || code == 416) &&

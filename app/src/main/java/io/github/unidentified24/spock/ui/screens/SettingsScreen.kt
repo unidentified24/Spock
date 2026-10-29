@@ -277,6 +277,7 @@ fun SettingsScreen(navController: NavController) {
             )
             Spacer(Modifier.height(12.dp))
             SectionTitle("Music source")
+            Text("Enabled sources compete. The first result plays; slower lookups stop. The fastest result may not be lossless.", color = io.github.unidentified24.spock.ui.theme.TextMuted, fontSize = 12.sp)
             SourceSettingRow(
                 title = "YouTube Music",
                 subtitle = if (youtubeConnected) "Connected — explicit and age-restricted playback enabled" else "Login required for explicit and age-restricted songs",

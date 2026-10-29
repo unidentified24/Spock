@@ -181,6 +181,7 @@ object LosslessSource {
         if (expectedSec <= 0) return true
         val seconds = runCatching {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                io.github.unidentified24.spock.playback.LookupConnections.track(this)
                 connectTimeout = 8_000
                 readTimeout = 8_000
                 setRequestProperty("User-Agent", USER_AGENT)
@@ -224,6 +225,7 @@ object LosslessSource {
 
     private fun get(urlString: String, headers: Map<String, String>): String {
         val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                io.github.unidentified24.spock.playback.LookupConnections.track(this)
             requestMethod = "GET"
             connectTimeout = 8_000
             readTimeout = 8_000

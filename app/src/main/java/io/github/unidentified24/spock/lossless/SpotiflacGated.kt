@@ -91,6 +91,7 @@ internal object SpotiflacGated {
 
     private fun post(urlString: String, body: ByteArray, headers: Map<String, String>): String {
         val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                io.github.unidentified24.spock.playback.LookupConnections.track(this)
             requestMethod = "POST"
             connectTimeout = 12_000
             readTimeout = 12_000

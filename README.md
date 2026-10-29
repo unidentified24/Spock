@@ -2,7 +2,9 @@
 
 An independent Android music app and downstream fork of a fork of spotui. Spock combines a personal catalog, local files, playback, lyrics, and listening statistics with its own visual identity.
 
-**1.7** uses application ID `io.github.unidentified24.spock` and interface revision `1.7`. It installs separately from the previous spotui-ID APK. Android 8.0 or newer is required.
+**1.8** uses application ID `io.github.unidentified24.spock` and interface revision `1.7`. It updates the signed Spock 1.7 APK and remains separate from the old spotui-ID app. Android 8.0 or newer is required.
+
+Enabled Deezer, FLAC, and YouTube sources resolve together. The first usable result plays and the others stop; playback does not wait for a quality upgrade. Existing downloads and local files retain their direct path. See [CHANGELOG.md](CHANGELOG.md).
 
 ## What's new
 

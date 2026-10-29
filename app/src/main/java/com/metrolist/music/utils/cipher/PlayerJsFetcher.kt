@@ -213,7 +213,7 @@ object PlayerJsFetcher {
 
         // .use{} so the response is closed on the error path too (an unread body would
         // otherwise strand its connection).
-        val body = httpClient.newCall(request).execute().use { response ->
+        val body = io.github.unidentified24.spock.playback.LookupConnections.trackCall(httpClient.newCall(request)).execute().use { response ->
             Timber.tag(TAG).d("iframe_api response: HTTP ${response.code}")
             if (!response.isSuccessful) {
                 Timber.tag(TAG).e("iframe_api HTTP ${response.code}")
@@ -250,7 +250,7 @@ object PlayerJsFetcher {
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
 
-        val body = httpClient.newCall(request).execute().use { response ->
+        val body = io.github.unidentified24.spock.playback.LookupConnections.trackCall(httpClient.newCall(request)).execute().use { response ->
             Timber.tag(TAG).d("player.js response: HTTP ${response.code}")
             if (!response.isSuccessful) {
                 Timber.tag(TAG).e("player.js download HTTP ${response.code}")

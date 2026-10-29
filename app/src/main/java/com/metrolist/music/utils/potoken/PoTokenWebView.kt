@@ -30,10 +30,12 @@ import kotlin.coroutines.resumeWithException
 class PoTokenWebView private constructor(
     context: Context,
     // to be used exactly once only during initialization!
-    private val continuation: Continuation<PoTokenWebView>,
+    private val continuation: kotlinx.coroutines.CancellableContinuation<PoTokenWebView>,
 ) {
     private val webView = WebView(context)
     private val scope = MainScope()
+    private val lookup = io.github.unidentified24.spock.playback.LookupConnections.current()
+    private var closed = false
     private val poTokenContinuations =
         Collections.synchronizedMap(ArrayMap<String, Continuation<String>>())
     private val exceptionHandler = CoroutineExceptionHandler { _, t ->
@@ -188,7 +190,7 @@ class PoTokenWebView private constructor(
     @JavascriptInterface
     fun onMinterCreated() {
         Timber.tag(TAG).d("poToken minter created successfully, initialization complete")
-        continuation.resume(this)
+        if (continuation.isActive) continuation.resume(this)
     }
     //endregion
 
@@ -198,6 +200,7 @@ class PoTokenWebView private constructor(
             suspendCancellableCoroutine { cont ->
                 Timber.tag(TAG).d("generatePoToken() called")
                 addPoTokenEmitter(identifier, cont)
+                cont.invokeOnCancellation { poTokenContinuations.remove(identifier, cont) }
                 // NOTE: obtainPoToken is now async, so we use .then()
                 webView.evaluateJavascript(
                     """try {
@@ -284,28 +287,30 @@ class PoTokenWebView private constructor(
                     "x-user-agent" to "grpc-web-javascript/0.1",
                 ).toHeaders())
                 .url(url)
-            val response = withContext(Dispatchers.IO) {
-                httpClient.newCall(requestBuilder.build()).execute()
+            val (httpCode, body) = withContext(Dispatchers.IO) {
+                val call = httpClient.newCall(requestBuilder.build())
+                lookup?.own(call)
+                call.execute().use { response -> response.code to response.body?.string().orEmpty() }
             }
-            val httpCode = response.code
             if (httpCode != 200) {
                 onInitializationErrorCloseAndCancel(PoTokenException("Invalid response code: $httpCode"))
             } else {
-                val body = withContext(Dispatchers.IO) {
-                    response.body!!.string()
-                }
                 handleResponseBody(body)
             }
         }
     }
 
     private fun onInitializationErrorCloseAndCancel(error: Throwable) {
-        close()
-        continuation.resumeWithException(error)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            close()
+            if (continuation.isActive) continuation.resumeWithException(error)
+        }
     }
 
     @MainThread
     fun close() {
+        if (closed) return
+        closed = true
         scope.cancel()
 
         webView.clearHistory()
@@ -335,6 +340,9 @@ class PoTokenWebView private constructor(
             return withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine { cont ->
                     val potWv = PoTokenWebView(context, cont)
+                    cont.invokeOnCancellation {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post { potWv.close() }
+                    }
                     potWv.loadHtmlAndObtainBotguard()
                 }
             }
