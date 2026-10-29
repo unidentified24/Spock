@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Spock" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="splashScreenTheme" parent="Theme.SplashScreen">
+        <!-- Match the Spock waveform mark and charcoal launcher background. -->
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/spock_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.Spock</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">true</item>
+    </style>
+</resources>
+

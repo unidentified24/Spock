@@ -1,0 +1,52 @@
+name: Signed Spock release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Configure stable release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SPOCK_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.SPOCK_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.SPOCK_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import os,base64,pathlib
+          assert all(os.environ.get(k) for k in ['KEYSTORE_BASE64','STORE_PASSWORD','KEY_PASSWORD']), 'Configure Spock signing secrets first.'
+          pathlib.Path('spock-release.jks').write_bytes(base64.b64decode(os.environ['KEYSTORE_BASE64'],validate=True))
+          pathlib.Path('keystore.properties').write_text('storeFile=spock-release.jks\nkeyAlias=spock\nstorePassword='+os.environ['STORE_PASSWORD']+'\nkeyPassword='+os.environ['KEY_PASSWORD']+'\n')
+          PY
+      - name: Build and test signed release
+        run: bash gradlew :app:assembleRelease :app:testReleaseUnitTest :innertube:testDebugUnitTest :spotify:test --no-daemon --max-workers=2
+      - name: Prepare versioned APK and manifest
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,shutil,os,re,hashlib
+          v=dict(line.strip().split('=',1) for line in pathlib.Path('version.properties').read_text().splitlines() if '=' in line)
+          name=v['VERSION_NAME']; assert re.fullmatch(r'[0-9]+(?:\.[0-9]+)+',name)
+          tag='v'+name
+          if os.environ['GITHUB_REF'].startswith('refs/tags/'): assert os.environ['GITHUB_REF_NAME']==tag
+          apk=pathlib.Path('Spock-'+name+'.apk'); shutil.copy2('app/build/outputs/apk/release/app-release.apk',apk)
+          pathlib.Path('release.json').write_text(json.dumps({'version':name,'versionCode':int(v['VERSION_CODE']),'uiVersion':v['UI_VERSION'],'applicationId':'io.github.unidentified24.spock','sha256':hashlib.sha256(apk.read_bytes()).hexdigest()},indent=2))
+          with open(os.environ['GITHUB_ENV'],'a') as out: out.write('SPOCK_TAG='+tag+'\nSPOCK_APK='+str(apk)+'\n')
+          PY
+      - name: Publish release and matching source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git archive --format=zip --output=Spock-source.zip HEAD
+          gh release create "$SPOCK_TAG" "$SPOCK_APK" release.json Spock-source.zip --target "$GITHUB_SHA" --title "Spock ${SPOCK_TAG#v}" --generate-notes
+      - name: Remove runner signing files
+        if: always()
+        run: rm -f spock-release.jks keystore.properties
