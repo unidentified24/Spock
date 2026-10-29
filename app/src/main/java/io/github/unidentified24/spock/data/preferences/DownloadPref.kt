@@ -101,7 +101,7 @@ private fun sanitizeFileName(name: String): String =
 
 /**
  * Copy every downloaded track out of the app's private storage into the shared
- * **Music/spotui** folder as `Artist - Title.<ext>`, so files show up in normal
+ * **Music/spock** folder as `Artist - Title.<ext>`, so files show up in normal
  * file managers / music apps (no root needed). Uses MediaStore on API 29+.
  * Returns (exportedCount, destinationLabel).
  */
@@ -109,17 +109,17 @@ fun exportDownloads(context: Context): Pair<Int, String> {
     val entries = getDownloadedEntries(context).filter { it.second.isNotBlank() && File(it.second).exists() }
     if (entries.isEmpty()) return 0 to "No downloaded files to export"
     val count = entries.count { (song, path) -> exportFile(context, song, path) }
-    return count to "Music/spotui"
+    return count to "Music/spock"
 }
 
-/** Export a single downloaded track to public Music/spotui. Returns true on success. */
+/** Export a single downloaded track to public Music/spock. Returns true on success. */
 fun exportDownload(context: Context, song: SongsModel): Boolean {
     val path = getDownloadedEntries(context).firstOrNull { it.first.id == song.id }?.second
         ?.takeIf { it.isNotBlank() && File(it).exists() } ?: return false
     return exportFile(context, song, path)
 }
 
-/** Copy one private download file into shared Music/spotui as "Artist - Title.<ext>". */
+/** Copy one private download file into shared Music/spock as "Artist - Title.<ext>". */
 private fun exportFile(context: Context, song: SongsModel, path: String): Boolean = runCatching {
     val src = File(path)
     if (!src.exists()) return false
@@ -135,7 +135,7 @@ private fun exportFile(context: Context, song: SongsModel, path: String): Boolea
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/spotui")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MUSIC}/spock")
             // Hidden from other apps until the copy finishes.
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
@@ -144,7 +144,7 @@ private fun exportFile(context: Context, song: SongsModel, path: String): Boolea
         val exported = resolver.query(
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, arrayOf(MediaStore.MediaColumns._ID),
             "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
-            arrayOf(displayName, "${Environment.DIRECTORY_MUSIC}/spotui/"), null,
+            arrayOf(displayName, "${Environment.DIRECTORY_MUSIC}/spock/"), null,
         )?.use { it.count > 0 } == true
         if (exported) return true
         val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values) ?: return false
@@ -159,7 +159,7 @@ private fun exportFile(context: Context, song: SongsModel, path: String): Boolea
         resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
     } else {
         val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "spotui",
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "spock",
         ).apply { mkdirs() }
         val dest = File(dir, displayName)
         runCatching { src.inputStream().use { input -> dest.outputStream().use { input.copyTo(it) } } }

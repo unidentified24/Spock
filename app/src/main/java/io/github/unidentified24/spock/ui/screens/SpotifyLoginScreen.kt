@@ -216,10 +216,10 @@ private fun fixSpotifyLoginLayout(webView: WebView) {
         webView.evaluateJavascript(
             """
             (function(){
-              var style = document.getElementById('spotui-login-layout-fix');
+              var style = document.getElementById('spock-login-layout-fix');
               if (!style) {
                 style = document.createElement('style');
-                style.id = 'spotui-login-layout-fix';
+                style.id = 'spock-login-layout-fix';
                 document.head.appendChild(style);
               }
               style.textContent = 'html,body,#__next{height:${viewportHeight}px!important;min-height:${viewportHeight}px!important;}' +

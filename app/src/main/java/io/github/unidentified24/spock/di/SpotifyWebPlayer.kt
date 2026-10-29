@@ -118,7 +118,7 @@ object SpotifyWebPlayer {
                     // (no page reload → no "Oops, something went wrong").
                     if (!commandReady) { commandReady = true; Log.d(TAG, "command API ready") }
                 }
-            }, "SpotuiBridge")
+            }, "SpockBridge")
 
             val cookies = CookieManager.getInstance().apply {
                 setAcceptCookie(true)
@@ -178,8 +178,8 @@ object SpotifyWebPlayer {
                         (function(){
                           navigator.requestMediaKeySystemAccess('com.widevine.alpha',
                             [{initDataTypes:['cenc'],audioCapabilities:[{contentType:'audio/mp4;codecs="mp4a.40.2"'}]}])
-                            .then(function(){ SpotuiBridge.onWidevine(true); })
-                            .catch(function(){ SpotuiBridge.onWidevine(false); });
+                            .then(function(){ SpockBridge.onWidevine(true); })
+                            .catch(function(){ SpockBridge.onWidevine(false); });
                         })();
                         """.trimIndent(),
                         null,
@@ -273,7 +273,7 @@ object SpotifyWebPlayer {
 
     private fun sendCommand(uri: String, path: String? = null) {
         val wv = webView ?: return
-        wv.evaluateJavascript("(window.__spotuiPlay ? window.__spotuiPlay('$uri') : 'no-fn');") { r ->
+        wv.evaluateJavascript("(window.__spockPlay ? window.__spockPlay('$uri') : 'no-fn');") { r ->
             Log.d(TAG, "command play -> $r")
             val res = r?.trim('"')
             if ((res == "no-fn" || res == "no-device") && path != null) {
@@ -361,13 +361,13 @@ object SpotifyWebPlayer {
 
     // Injected once per page load. Hooks fetch to capture the web player's device
     // id + auth/client tokens (from its own requests), then exposes
-    // __spotuiPlay(uri) which plays any track/episode via Spotify's connect-state
+    // __spockPlay(uri) which plays any track/episode via Spotify's connect-state
     // command API — no page reload. license:'tft' matches SpotiFuck. Also reloads
     // on a connect-state 404 (player lock) to self-heal.
     private val BOOTSTRAP_JS = """
         (function(){
-          if (window.__spotuiReady) return;
-          window.__spotuiReady = true;
+          if (window.__spockReady) return;
+          window.__spockReady = true;
           window.__featVer = 'web-player_' + Date.now();
           var oriFetch = window.fetch.bind(window);
           window.__oriFetch = oriFetch;
@@ -390,14 +390,14 @@ object SpotifyWebPlayer {
               var au = hv('Authorization'); if (au && au.indexOf('Bearer') === 0) window.__auth = au;
               if (window.__devId && window.__auth && !window.__reported) {
                 window.__reported = true;
-                try { SpotuiBridge.onCommandReady(); } catch(e){}
+                try { SpockBridge.onCommandReady(); } catch(e){}
               }
             } catch(e){}
             return oriFetch.apply(this, arguments);
           };
           // Only ever called AFTER the token+device are captured (native waits for
           // onCommandReady), so we never poke a half-initialised player.
-          window.__spotuiPlay = function(uri){
+          window.__spockPlay = function(uri){
             if (!window.__devId || !window.__auth) return 'no-device';
             var base = window.__spBase || 'https://gew4-spclient.spotify.com';
             var type = (uri.match(/^spotify:([^:]+)/) || [])[1] || 'track';

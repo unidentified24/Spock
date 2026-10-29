@@ -22,7 +22,7 @@ object ListeningMeter {
         if (delta > 0) {
             val key = "${LocalDate.now()}:${entry.songId}"
             val row = rows.optJSONObject(key) ?: JSONObject().put("date", LocalDate.now().toString())
-                .put("artist", entry.singer).put("album", entry.album).put("title", entry.title)
+                .put("songId", entry.songId).put("artist", entry.singer).put("album", entry.album).put("title", entry.title)
             row.put("ms", row.optLong("ms") + delta); rows.put(key, row); dirty = true
         }
         if (dirty && (!playing || now - lastFlush >= 5000)) {
@@ -32,6 +32,10 @@ object ListeningMeter {
     }
     @Synchronized private fun rows(context: Context): List<JSONObject> = data(context).let { d -> d.keys().asSequence().map { d.getJSONObject(it) }.toList() }
     fun milliseconds(context: Context) = rows(context).sumOf { it.optLong("ms") }
+    fun songMilliseconds(context: Context, songId: Int) = rows(context).filter { it.optInt("songId", -1) == songId }.sumOf { it.optLong("ms") }
+    fun songs(context: Context): List<Pair<String, Long>> = rows(context)
+        .groupBy { it.optString("title") + " · " + it.optString("artist") }
+        .map { (name, values) -> name to values.sumOf { it.optLong("ms") } }.sortedByDescending { it.second }.take(20)
     fun stats(context: Context): Map<String, Int> {
         val now = LocalDate.now()
         val starts = mapOf("today" to now, "thisWeek" to now.with(java.time.DayOfWeek.MONDAY), "thisMonth" to now.withDayOfMonth(1), "allTime" to LocalDate.MIN)

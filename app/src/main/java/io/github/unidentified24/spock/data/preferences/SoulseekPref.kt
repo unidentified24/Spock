@@ -16,7 +16,7 @@ fun soulseekCredentials(context: Context): Pair<String, String> {
     if (!user.isNullOrBlank() && !pass.isNullOrBlank()) return user to pass
     val rnd = java.security.SecureRandom()
     fun token(n: Int) = (1..n).map { "abcdefghijklmnopqrstuvwxyz0123456789"[rnd.nextInt(36)] }.joinToString("")
-    val created = "spotui-${token(10)}" to token(24)
+    val created = "spock-${token(10)}" to token(24)
     p.edit().putString("username", created.first).putString("password", created.second).apply()
     return created
 }

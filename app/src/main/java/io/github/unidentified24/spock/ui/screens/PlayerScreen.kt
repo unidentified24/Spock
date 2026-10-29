@@ -346,6 +346,7 @@ fun PlayerScreen(navController: NavController) {
                 onMenuClick = { showMenu = true },
                 contextName = playerViewModel.currentSongAlbum.value,
             )
+            io.github.unidentified24.spock.ui.components.ListeningBadge(songId)
             //Spacer(modifier = Modifier.padding(16.dp))
             // Swipe the artwork left/right to skip to the next/previous track. Using a
             // HorizontalPager makes the artwork follow the finger and snap, syncing the

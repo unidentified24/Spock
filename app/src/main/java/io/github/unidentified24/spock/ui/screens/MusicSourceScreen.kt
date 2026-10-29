@@ -45,7 +45,7 @@ fun MusicSourceScreen(navController: NavController) {
             Text("Choose your music source", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             Text(
-                "Spotify keeps your library and recommendations. Choose where Spotui streams the audio.",
+                "Spotify keeps your library and recommendations. Choose where Spock streams the audio.",
                 color = Color(0xFFB9B4C3), fontSize = 14.sp, textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(32.dp))

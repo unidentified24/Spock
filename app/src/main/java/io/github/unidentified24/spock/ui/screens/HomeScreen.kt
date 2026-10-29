@@ -252,7 +252,7 @@ private fun HomePill(label: String, selected: Boolean = false, onClick: () -> Un
     }
 }
 
-/** "Spotui x.y" pill: checks GitHub every few hours and turns into an update link. */
+/** "Spock x.y" pill: checks GitHub every few hours and turns into an update link. */
 @Composable
 private fun UpdateButton() {
     val context = LocalContext.current

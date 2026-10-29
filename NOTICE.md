@@ -14,4 +14,4 @@ The inherited project credits:
 
 Retain the original GNU GPL version 3 license in LICENSE, source copyright notices, and third-party license notices. Release workflows attach the matching source to each APK release. The precise intermediate fork URL and inherited asset provenance still need to be documented before claiming a complete provenance review.
 
-Spock now uses Android's system fonts. The bundled extracted Spotify font files were removed from the current source. Earlier private commits still contain those assets unless history is cleaned before public release.
+Spock now uses Android's system fonts. The bundled extracted Spotify font files were removed from the current source. The earlier development history is stored only in a separate private backup; main now begins with a clean source snapshot. GitHub may retain previously uploaded unreachable objects and cached commit URLs; removal from branch history does not guarantee server-side purging.

@@ -21,7 +21,7 @@ import java.net.URLEncoder
  */
 object LyricsApi {
     private const val BASE = "https://lrclib.net/api"
-    private const val UA = "SpotuiSpotifyClone (https://github.com/)"
+    private const val UA = "Spock (+https://github.com/unidentified24/Spock)"
 
     // In-memory cache keyed by "title|artist" so re-opening the lyrics view (or the
     // inline card + full-screen view, which both request the same track) is instant

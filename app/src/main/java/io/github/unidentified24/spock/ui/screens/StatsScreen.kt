@@ -70,6 +70,7 @@ fun StatsScreen(navController: NavController) {
     var topArtists by remember { mutableStateOf(getTopArtists(context, 8)) }
     var topAlbums by remember { mutableStateOf(getTopAlbums(context, 8)) }
     var dayMinutes by remember { mutableStateOf(getListeningByDayOfWeek(context)) }
+    var songTimes by remember { mutableStateOf(io.github.unidentified24.spock.data.preferences.ListeningMeter.songs(context)) }
     var playCount by remember { mutableStateOf(getListeningHistory(context).size) }
 
     // Refresh the numbers on every composition (screen re-entry) so the
@@ -82,6 +83,7 @@ fun StatsScreen(navController: NavController) {
         topAlbums = getTopAlbums(context, 8)
         dayMinutes = getListeningByDayOfWeek(context)
         playCount = getListeningHistory(context).size
+        songTimes = io.github.unidentified24.spock.data.preferences.ListeningMeter.songs(context)
         kotlinx.coroutines.delay(1000)
         }
     }
@@ -136,6 +138,20 @@ fun StatsScreen(navController: NavController) {
             item { TopArtistsCard(topArtists) }
             item { Spacer(Modifier.height(10.dp)) }
             item { TopAlbumsCard(topAlbums) }
+            item {
+                Column(Modifier.padding(20.dp).fillMaxWidth().clip(RoundedCornerShape(24.dp))
+                    .background(io.github.unidentified24.spock.ui.theme.GridBackground).padding(18.dp)) {
+                    Text("SONGS · TIME LISTENED", color = AppPalette, fontWeight = FontWeight.Bold)
+                    if (songTimes.isEmpty()) Text("Play a song to start your counter.", color = Color.White)
+                    songTimes.forEach { (name, ms) ->
+                        Spacer(Modifier.height(12.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(name, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text("%d:%02d".format(ms / 60000, ms / 1000 % 60), color = AppPalette)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -189,7 +205,7 @@ private fun TotalMinutesCard(totalMinutes: Int, playCount: Int) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "$totalMinutes minutes • $playCount tracks played",
+            text = "$totalMinutes minutes â€¢ $playCount tracks played",
             color = Color.White.copy(alpha = 0.65f),
             fontSize = 14.sp,
         )
@@ -279,7 +295,7 @@ private fun PeriodCard(label: String, minutes: Int, modifier: Modifier = Modifie
 }
 
 /**
- * Bar chart of listening time per day of the week (Mon–Sun order).
+ * Bar chart of listening time per day of the week (Monâ€“Sun order).
  */
 @Composable
 private fun WeekChartCard(dayMinutes: Map<String, Int>) {
@@ -579,7 +595,7 @@ private fun CircularIndicator(
     }
 }
 
-/** "92 min" → "1h 32m" style formatting. */
+/** "92 min" â†’ "1h 32m" style formatting. */
 private fun formatMinutesHuman(minutes: Int): String {
     if (minutes <= 0) return "0 min"
     val h = minutes / 60

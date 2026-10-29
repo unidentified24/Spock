@@ -6,7 +6,7 @@ Implemented: separate Spock app identity, Spock-owned release endpoint, stable l
 
 Before making this repository public:
 
-1. Keep a private backup, then resolve the old-history font assets: approve a clean source history or remove those paths throughout history using a reviewed history-cleanup process. Deleting the current files alone does not erase older commits.
+1. A private backup was saved and main was replaced with a root source snapshot with no old parents. Check all remaining branches/tags and ask GitHub Support about purging previously uploaded cached/unreachable objects if complete server-side removal is required. Old local checkouts must not force-push the former history back.
 2. Add the missing intermediate fork URL and review inherited artwork/asset licensing. Keep upstream authorship and GPL notices.
 3. Add the three repository Actions secrets documented in RELEASING.md. Never commit the signing backup, keystore properties, account cookies or tokens. A targeted current-source credential-pattern check is not a complete security audit or a certification of third-party service compliance.
 4. Run the signed release workflow and verify a real 1.7-to-1.8 update with the same key on a device before describing over-the-air updates as verified.

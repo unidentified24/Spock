@@ -27,7 +27,7 @@ internal object LosslessRegistry {
     const val API_KEY = "ak_8e3f1a7c2b5d9e4f0a6c3b8d1e5f2a9c7b4d0e6f"
 
     // Issues the signed sessions the community download servers accept. Sessions from
-    // any other host (Spotui used api.zarz.moe) fail there with 401 "Signed request
+    // any other host (Spock used api.zarz.moe) fail there with 401 "Signed request
     // validation failed". Network call: IO only.
     fun communityVerifyUrl(): String =
         registry()?.optJSONObject("community")?.optString("verify")?.takeIf { it.startsWith("https://") }
