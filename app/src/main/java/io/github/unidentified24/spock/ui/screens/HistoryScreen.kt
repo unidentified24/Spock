@@ -31,7 +31,7 @@ import kotlinx.coroutines.delay
 @Composable fun HistoryScreen(navController:NavController) {
     val player:PlayerViewModel=hiltViewModel()
     val context=LocalContext.current;var history by remember {mutableStateOf(getListeningHistory(context))}
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item{StudioHeader(navController,"The recent rotation.",back=true)}
         item{Row(Modifier.fillMaxWidth().padding(horizontal=20.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
             Text("${history.size} recent plays",color=TextMuted)

@@ -1,5 +1,14 @@
 # Changes
 
+## 2.7
+
+- New image-based Spock wave logo across launcher, splash and app branding.
+- Use actual song art and its palette in Record, Waves, Spectrum and Orbit; remove instructional player copy and alternate-stream controls.
+- Fit Collection shortcuts and filters on narrow screens; reserve navigation space and support rotation and tablet player panes.
+- Import/export validated `.spockdata` preferences, favorites, library and listening-history backups. Exclude credentials and music files.
+- Keep foreground native playback alive after dismissing the activity; acquire playback wake locks through Media3.
+- Add prominent GitHub Releases links in the README and About screen. Keep live publishing deferred.
+
 ## 2.6
 
 - Reproduced popular-track failures with real Android decoding; twelve final samples started in 1.14–3.95s and decoded near their end.

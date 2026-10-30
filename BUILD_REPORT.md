@@ -1,55 +1,31 @@
-# Spock 2.6 — real-track playback and candidate validation
+# Spock 2.7 — interface polish and portable backups
 
-Package io.github.unidentified24.spock; app/interface 2.6; version code 26. The original Documents/Spock project is not modified for this update. Live release publishing remains deferred.
+App/interface 2.7, version code 27, package `io.github.unidentified24.spock`. The original Documents/Spock folder is untouched. Live release/tag publishing remains deferred.
 
-## Actual music verification
+## Changes
 
-| Recording | Start | Ending audio decoded |
-|---|---:|---|
-| Blinding Lights The Weeknd | 3.95 s | Yes |
-| Shape of You Ed Sheeran | 1.61 s | Yes |
-| Levitating Dua Lipa | 1.52 s | Yes |
-| bad guy Billie Eilish | 1.45 s | Yes |
-| Unity TheFatRat | 1.14 s | Yes |
-| Flowers Miley Cyrus | 1.34 s | Yes |
-| As It Was Harry Styles | 1.30 s | Yes |
-| Believer Imagine Dragons | 1.38 s | Yes |
-| Dance Monkey Tones and I | 1.45 s | Yes |
-| Espresso Sabrina Carpenter | 1.25 s | Yes |
-| Happier Than Ever Billie Eilish | 1.63 s | Yes |
-| Bohemian Rhapsody Queen | 1.60 s | Yes |
+- Generated a new navy/ivory/amber wave-ribbon S image and installed it in the launcher, splash and in-app brand mark.
+- Album covers and their extracted colors now anchor all five player styles. Record uses the cover as its spinning label; Orbit uses it at the center; Waves and Spectrum show a cover thumbnail and album-derived colors. Visual motion is decorative, not a measured audio analyzer. Palette work uses a small cached bitmap off the main/audio thread.
+- Removed the animated-artwork explanation, track-options explanation, first-launch instruction card and alternate-stream menu/editor from the listening room. Normal playback no longer displays the generic source-status block; errors retain Retry and Sources actions.
+- Collection Downloads/On device shortcuts use compact vertical cards. Collection filters and appearance choices can wrap. The app shell reserves actual navigation height instead of drawing over page controls. Bottom navigation stacks icon/label on narrow screens.
+- Removed forced portrait orientation, capped very wide page widths, added two-pane player layouts for wide/landscape windows, and sized artwork to leave room for controls on short phone screens. Scrolling remains available for larger text and long track names.
+- Settings → Data exports `.spockdata` through Android's file picker. Import reads and validates the entire bounded, versioned JSON document before asking to restore. Portable preference sections are explicitly allowed; account credentials, audio files, downloads, local file permissions and arbitrary preference sections are excluded. Favorites, appearance/sound preferences, cached library/followed artists and listening history are included. Import replaces the portable sections present in the backup and keeps other device/account state. Failed preference commits attempt rollback. Listening-meter cache is reset after restore so old data cannot overwrite restored statistics.
+- Added Media3 network wake management and permissions for native background playback. Dismissing the activity/task no longer deliberately pauses active audio. Android audio focus/headset-disconnect behavior is retained.
+- Added prominent GitHub Releases links in README and About. This adds navigation without publishing a release.
 
-All 12 final samples produced advancing decoded audio within five seconds (median 1.45 s, maximum 3.95 s) and decoded again after seeking near the end. A signed, separate instrumentation driver called the release playback engine in a temporary Android API 37 emulator; it supplied title/artist/duration metadata as the catalog normally would. No signed-in provider accounts were available. These are start/end samples, not continuous full-song listening or a guarantee about all recordings/phones. PLAYBACK_TESTS.md and the delivery CSV/JSON contain the method and individual observations.
+## Playback preservation
 
-## Corrected failures
+A source comparison verifies `SongPlayer.kt` differs from the tested 2.6 version only by the Media3 wake-mode setting. Source resolution, time budgets, racing, matching, buffering and YouTube/Deezer/FLAC/SoundCloud behavior are unchanged. The 12-track timing results in PLAYBACK_TESTS.md belong to 2.6; they are not reported as a new 2.7 performance run.
 
-The 2.5 baseline failed four popular recordings. Newer iOS YouTube responses contained format metadata without normal audio URLs. A live-supported direct response now participates with matching client identity, while the token-enabled browser-shaped fallback is prioritized and warmed. Metadata-only formats are not mistaken for transport URLs. Media3 uses OkHttp to align networking with validation. Prefix GET success alone was found insufficient: some streams reject later ranges. The full-stream/end-range guard remains enabled.
+## Verification
 
-The shared token bridge assigned asynchronous identifiers to globals; overlapping requests could deliver a token to the wrong continuation. Request-local JavaScript bindings fix this. A Node test executes the shipped snippet with out-of-order success/failure callbacks and reproduces the old failure. The public token function is now suspending instead of wrapping another coroutine in blocking runBlocking, so cancellation can meet the foreground budget. Shared helper initialization begins after the initial UI frame and is bounded. The signature timestamp and primary decoder use the same fetched player.js.
+Signed release assembly and 109 JVM tests (99 app, 8 streaming, 2 Spotify), plus 13 shipped JavaScript checks. Four new backup tests cover typed round trips, credential exclusion, unsupported versions/sections, invalid types/dates and oversized files.
 
-Intermediate Android testing caught a 237 s Blinding Lights selection against a 200 s expected recording. Both ranking and native preparation now enforce a duration tolerance of max(3s,3%). Native preparation runs within the YouTube candidate competition, so a wrong-length/undecodable early URL cannot cancel the other candidates. The winning buffered player is retained. Players handed to the queue cannot subsequently be released by cancelled lookup cleanup; a remote prepared-track transfer was verified with advancing playback 762 ms after selection.
+Temporary Android API 37 emulator checks (320 × 568 dp narrow phone and approximately 1067 × 667 dp landscape tablet windows): real `.spockdata` file export/restore recovered a theme and favorite, omitted a credential sentinel and kept the device's existing sentinel unchanged. Real native audio advanced for eight seconds after removing the activity/task. Narrow-phone Collection and tablet/landscape player screenshots were inspected; the short-phone artwork was reduced after the initial visual check found that it pushed controls below the fold. Wide-player artwork also reserves room for the view selector and window insets. Final device results and delivery hashes are appended to the delivered report. A temporary System UI not-responding dialog during display resizing was dismissed with Wait; the app crash buffer remained empty.
 
-Foreground source competition has a 4.5 s budget, leaving time for promotion/stop acknowledgement. Network/provider conditions can still produce a timeout or no accessible full stream. The faster route does not replace a full song with a preview or an obvious alternate recording. SoundCloud caches multiple candidates, prioritizes artist uploads, rejects unexpected alternate/featured editions and can try another match after preparation failure.
-
-## FLAC and source settings
-
-Include FLAC over Wi-Fi now atomically saves the source, lossless quality and explicit Wi-Fi request, with a visible checkmark/description. The policy supports an explicit request on metered Wi-Fi and leaves cellular separate. Unit coverage verifies those cases. A runtime metered-emulator check was inconclusive because the network became unvalidated/unavailable to the instrumented app; it is not represented as a passed device-network test.
-
-Ten published community HiFi candidates are available in the built-in pool alongside modern Monochrome and the refreshed verified registry. Each public endpoint competes through search, match, track request and a 42-byte full-FLAC header check. A quick search on a server with broken streaming cannot win. Failed hosts back off, and only verified full-FLAC requests reset health. Android 8-compatible bounded reads handle partial reads without depending on InputStream.readNBytes from newer Android releases.
-
-Live added-mirror probes encountered DNS failures, TLS verification errors, connection resets and stream 403s; no newly working public FLAC source was verified. TLS checking remains enabled. Enabling FLAC allows participation when servers work; it does not imply the servers are available. Deezer and YouTube race independently of the old primary-source preference; Deezer avoids an unnecessary Spotify ISRC request when catalog text is already available. Authenticated Deezer/Spotify playback still needs real-account phone validation.
-
-## Checks
-
-Release assembly succeeded. 105 JVM tests passed (95 app, 8 streaming, 2 Spotify). Eleven shipped browser checks plus two shipped token-bridge concurrency/error checks passed. Local release lint/annotation extraction remains excluded in this environment; GitHub performs ordinary Android assembly/unit checks. The delivery report appends the package hash, signing verification and final smoke checks. Signing credentials, test-driver APKs and private backups are excluded from source.
-
-## Final device smoke checks
-
-On the final 2.6 release, local WAV files selected outside Spock’s folder played with Wi-Fi and cellular disabled. The local queue advanced from the first track to the second. Saving a local track through Download changed the menu to “Downloaded — remove”; selecting it from Offline produced playing audio with the full 20-second file buffered. The crash buffer stayed empty. The connected-music button visibly changed to “FLAC included over Wi-Fi ✓” after activation.
+These tests simulate multiple window sizes on one emulator. They are not certification across physical phones/tablets or prolonged background tests on every manufacturer's battery policy. Calls and other apps requesting audio focus may still pause audio normally.
 
 ## References
 
-- https://developer.android.com/reference/androidx/media3/datasource/okhttp/OkHttpDataSource.Factory
-- https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide
-- https://github.com/MetrolistGroup/Metrolist/blob/main/app/src/main/kotlin/com/metrolist/music/utils/potoken/PoTokenGenerator.kt
-- https://github.com/monochrome-music/monochrome/blob/main/INSTANCES.md
+- [Android background playback](https://developer.android.com/media/media3/session/background-playback)
+- [Media3 ExoPlayer wake management](https://github.com/androidx/media/blob/release/libraries/exoplayer/src/main/java/androidx/media3/exoplayer/ExoPlayer.java)

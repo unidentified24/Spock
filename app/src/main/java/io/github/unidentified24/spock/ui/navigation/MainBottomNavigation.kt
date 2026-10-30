@@ -41,11 +41,10 @@ fun MainBottomNavigation(navController:NavHostController,bottomBarState:MutableS
             val destinations=listOf(Triple(Routes.Home,"Listen",Icons.Default.GraphicEq),Triple(Routes.Search,"Explore",Icons.Default.Explore),Triple(Routes.Library,"Collection",Icons.Default.GridView))
             destinations.forEach { (route,label,icon)->
                 val selected=current?.destination?.route==route.route
-                Row(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if(selected) AppPalette.copy(alpha=.13f) else GridBackground)
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if(selected) AppPalette.copy(alpha=.13f) else GridBackground)
                     .clickable{navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id){saveState=true};launchSingleTop=true;restoreState=true}}
-                    .padding(vertical=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                    .padding(vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Icon(icon,null,tint=if(selected)AppPalette else TextMuted,modifier=Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
                     Text(label,color=if(selected)Color.White else TextMuted,style=MaterialTheme.typography.labelMedium)
                 }
             }

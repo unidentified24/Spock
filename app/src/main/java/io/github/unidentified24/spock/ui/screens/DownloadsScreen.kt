@@ -46,7 +46,7 @@ fun DownloadsScreen(navController:NavController) {
         }
     }
     menu?.let { song -> SongOptionsSheet(song,navController,context,onDismiss={menu=null}) }
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"Always with you.",eyebrow="OFFLINE",back=true) }
         item {
             StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {

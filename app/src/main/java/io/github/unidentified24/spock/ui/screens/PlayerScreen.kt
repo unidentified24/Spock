@@ -133,16 +133,7 @@ fun PlayerScreen(navController:NavController) {
         return
     }
     val current=songs.firstOrNull {it.id==id}
-    Column(Modifier.fillMaxSize().background(AppBackground).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement=Arrangement.spacedBy(20.dp)) {
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-            StudioIcon(Icons.Default.KeyboardArrowDown,"Close player"){navController.navigateUp()}
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                SpockMark(Modifier.size(26.dp));Text("THE LISTENING ROOM",color=AppPalette,style=MaterialTheme.typography.labelSmall)
-            }
-            StudioIcon(Icons.Default.MoreHoriz,"Track options"){menu=true}
-        }
-        PlayerPresentation(title,vm.currentSongCoverUri.value,playing)
+    val controls: @Composable ColumnScope.() -> Unit = {
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(vm.currentSongAlbum.value.ifBlank{"NOW PLAYING"}.uppercase(),color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text(title.ifBlank{"Nothing playing yet"},color=Color.White,style=MaterialTheme.typography.headlineLarge,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -168,14 +159,39 @@ fun PlayerScreen(navController:NavController) {
             OutlinedButton(onClick={lyrics=true},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.Notes,null);Text(" Lyrics")}
             OutlinedButton(onClick={navController.navigate(Routes.Queue.route)},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.QueueMusic,null);Text(" Up next")}
         }
-        Text("Track options include save, download, sleep timer and alternative audio.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
+    }
+    BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground).safeDrawingPadding(),contentAlignment=Alignment.TopCenter) {
+        val wide=maxWidth>=700.dp || (maxWidth>=560.dp && maxHeight<500.dp)
+        val artSize=(maxHeight-(if(wide)220.dp else 440.dp)).coerceIn(96.dp,if(wide)440.dp else 400.dp)
+        Column(Modifier.widthIn(max=1100.dp).fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+            StudioIcon(Icons.Default.KeyboardArrowDown,"Close player"){navController.navigateUp()}
+            Row(Modifier.weight(1f).padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                SpockMark(Modifier.size(26.dp));Text("LISTENING ROOM",color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            StudioIcon(Icons.Default.MoreHoriz,"Track options"){menu=true}
+        }
+            if(wide) {
+                Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(28.dp)) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize)}
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp),content=controls)
+                }
+            } else {
+                Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize)
+                    controls()
+                }
+            }
+        }
     }
 }
+
 @Composable private fun StudioSourceStatus(id:Int,navController:NavController,query:String) {
     val context=LocalContext.current
     var failed by remember(id){mutableStateOf(false)}
     var label by remember(id){mutableStateOf("")}
-    LaunchedEffect(id){while(true){failed=SongPlayer.playbackFailed;label=SongPlayer.playbackMessage.ifBlank {"Spock · your music"};delay(600)}}
+    LaunchedEffect(id){while(true){failed=SongPlayer.playbackFailed;label=SongPlayer.playbackMessage;delay(600)}}
+    if(label.isBlank()&&!failed)return
     Row(Modifier.fillMaxWidth().clip(StudioShape).background(GridBackground).padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
         Icon(Icons.Default.GraphicEq,null,tint=AppPalette)
         Column(Modifier.weight(1f)) {
@@ -195,10 +211,7 @@ fun PlayerScreen(navController:NavController) {
         Slider(value=if(dragging)value else if(duration>0)(position.toFloat()/duration).coerceIn(0f,1f) else 0f,
             onValueChange={dragging=true;value=it},onValueChangeFinished={SongPlayer.seekTo((value*duration).toLong());dragging=false},
             colors=SliderDefaults.colors(thumbColor=AppPalette,activeTrackColor=AppPalette,inactiveTrackColor=SurfaceVariant),modifier=Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-            Text("SEEK",color=TextMuted,style=MaterialTheme.typography.labelSmall)
-            Text(if(duration>0) "${((if(dragging)value else position.toFloat()/duration)*100).toInt().coerceIn(0,100)}%" else "—",color=TextMuted,style=MaterialTheme.typography.labelSmall)
-        }
+
     }
 }
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalGlideComposeApi::class)
@@ -213,7 +226,6 @@ fun PlayerOptionsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showSleep by remember { mutableStateOf(false) }
     var showSavedIn by remember { mutableStateOf(false) }
-    var showAlternativeStream by remember { mutableStateOf(false) }
     val title = playerViewModel.currentSongTitle.value
     val singer = playerViewModel.currentSongSinger.value
     val cover = playerViewModel.currentSongCoverUri.value
@@ -224,24 +236,6 @@ fun PlayerOptionsSheet(
     val currentSong = playerViewModel.queue.value.firstOrNull { it.id == songId }
     var downloaded by remember(songId) { mutableStateOf(io.github.unidentified24.spock.data.preferences.isDownloaded(context, songId.toString())) }
     var downloadingNow by remember(songId) { mutableStateOf(currentSong != null && io.github.unidentified24.spock.di.Downloads.isDownloading(currentSong.url)) }
-    val alternativeKey = currentSong?.let { alternativeStreamKey(it) }.orEmpty()
-    var currentAlternative by remember(songId, alternativeKey) {
-        mutableStateOf(alternativeKey.takeIf { it.isNotBlank() }?.let { getAlternativeStream(context, it) })
-    }
-    val localFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        val song = currentSong ?: return@rememberLauncherForActivityResult
-        val picked = uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                picked,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }
-        setLocalAlternativeStream(context, alternativeKey, picked, picked.lastPathSegment.orEmpty())
-        SongPlayer.invalidateResolvedStream(song.url)
-        currentAlternative = getAlternativeStream(context, alternativeKey)
-        Toast.makeText(context, "Alternative stream set to local file", Toast.LENGTH_SHORT).show()
-    }
     if (showSavedIn && currentSong != null) {
         io.github.unidentified24.spock.ui.components.SavedInSheet(
             song = currentSong,
@@ -262,37 +256,10 @@ fun PlayerOptionsSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(bottom = 12.dp)
         ) {
-            if (showAlternativeStream) {
-                AlternativeStreamEditor(
-                    currentAlternative = currentAlternative,
-                    enabled = currentSong != null,
-                    onBack = { showAlternativeStream = false },
-                    onUseYouTube = { text ->
-                        val song = currentSong ?: return@AlternativeStreamEditor
-                        val videoId = SongPlayer.videoIdFromYouTubeLink(text)
-                        if (videoId == null) {
-                            Toast.makeText(context, "Paste a YouTube video link or video ID", Toast.LENGTH_SHORT).show()
-                        } else {
-                            setYouTubeAlternativeStream(context, alternativeKey, videoId)
-                            SongPlayer.invalidateResolvedStream(song.url)
-                            currentAlternative = getAlternativeStream(context, alternativeKey)
-                            Toast.makeText(context, "Alternative stream set to YouTube", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onPickLocal = {
-                        localFileLauncher.launch(arrayOf("audio/*"))
-                    },
-                    onClear = {
-                        val song = currentSong ?: return@AlternativeStreamEditor
-                        clearAlternativeStream(context, alternativeKey)
-                        SongPlayer.invalidateResolvedStream(song.url)
-                        currentAlternative = null
-                        Toast.makeText(context, "Alternative stream cleared", Toast.LENGTH_SHORT).show()
-                    },
-                )
-            } else if (!showSleep) {
+            if (!showSleep) {
                 // ── Now-playing header ──
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -351,15 +318,6 @@ fun PlayerOptionsSheet(
                             downloaded = ok
                         }
                     }
-                }
-                PlayerMenuRow(
-                    icon = Icons.Default.PlayArrow,
-                    iconTint = if (currentAlternative != null) Color(AppPalette.toArgb()) else Color.White,
-                    label = if (currentAlternative == null) "Alternative stream" else "Alternative stream set",
-                    enabled = currentSong != null,
-                    trailingArrow = true,
-                ) {
-                    showAlternativeStream = true
                 }
                 PlayerMenuRow(
                     icon = if (isLiked.value) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -442,86 +400,6 @@ fun PlayerOptionsSheet(
                     }
                 }
             }
-        }
-    }
-}
-@Composable
-fun AlternativeStreamEditor(
-    currentAlternative: io.github.unidentified24.spock.data.preferences.AlternativeStream?,
-    enabled: Boolean,
-    onBack: () -> Unit,
-    onUseYouTube: (String) -> Unit,
-    onPickLocal: () -> Unit,
-    onClear: () -> Unit,
-) {
-    var youtubeText by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                tint = Color.White,
-                modifier = Modifier
-                    .size(24.dp)
-                    .clickable { onBack() },
-                contentDescription = null,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Alternative stream",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-        Text(
-            text = when {
-                currentAlternative == null -> "No alternative stream set"
-                currentAlternative.isYouTube -> "Current: YouTube video ${currentAlternative.value}"
-                currentAlternative.isLocal -> "Current: local file ${currentAlternative.label.ifBlank { currentAlternative.value }}"
-                else -> "Current alternative stream"
-            },
-            color = if (currentAlternative == null) Color(0xFFB9B4C3) else Color(AppPalette.toArgb()),
-            fontSize = 13.sp,
-            maxLines = 2,
-        )
-        Spacer(Modifier.height(16.dp))
-        OutlinedTextField(
-            value = youtubeText,
-            onValueChange = { youtubeText = it },
-            enabled = enabled,
-            singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
-            label = { Text("YouTube link or video ID", color = Color(0xFFB9B4C3)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(enabled = enabled && youtubeText.isNotBlank(), onClick = { onUseYouTube(youtubeText) }) {
-                Text("Use YouTube", color = if (enabled && youtubeText.isNotBlank()) AppPalette else Color.Gray)
-            }
-        }
-        PlayerMenuRow(
-            icon = Icons.Default.Add,
-            label = "Use local audio file",
-            enabled = enabled,
-        ) {
-            onPickLocal()
-        }
-        PlayerMenuRow(
-            icon = Icons.Default.CheckCircle,
-            label = "Clear alternative stream",
-            enabled = enabled && currentAlternative != null,
-            iconTint = Color(0xFFE57373),
-        ) {
-            onClear()
         }
     }
 }

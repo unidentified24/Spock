@@ -28,24 +28,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LibraryScreen(navController:NavController) {
     val vm:LibraryViewModel=hiltViewModel(); val response by vm.entries.collectAsState();val artists by vm.followedArtists.collectAsState()
     var query by rememberSaveableStudio();var filter by remember { mutableIntStateOf(0) }
     val entries=CollectionIdentity.entries((response as? Response.Success)?.data.orEmpty()).filter{it.spotifyId !in setOf("liked-songs","downloaded-offline")}
     val filtered=remember(entries,query,filter) { entries.filter { (filter==0 || it.isPlaylist==(filter==1)) && (it.name.contains(query,true)||it.subtitle.contains(query,true)) } }
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"Your collection.") }
         item {
             Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 StudioAction("Favorites","The tracks you keep close",Icons.Default.FavoriteBorder) { navController.navigate(Routes.Liked.route) }
                 Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.weight(1f)) { StudioAction("Offline","Downloads",Icons.Default.Download) { navController.navigate(Routes.Downloads.route) } }
-                    Box(Modifier.weight(1f)) { StudioAction("On device","Local music",Icons.Default.FolderOpen) { navController.navigate(Routes.LocalFiles.route) } }
+                    Box(Modifier.weight(1f)) { StudioShortcut("Downloads",Icons.Default.Download) { navController.navigate(Routes.Downloads.route) } }
+                    Box(Modifier.weight(1f)) { StudioShortcut("On device",Icons.Default.FolderOpen) { navController.navigate(Routes.LocalFiles.route) } }
                 }
                 TextButton(onClick={vm.load()},enabled=response !is Response.Loading){Text("Refresh collection")}
                 OutlinedTextField(query,{query=it},label={Text("Find in your collection")},singleLine=true,shape=StudioShape,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Search,null)})
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("All","Playlists","Albums","Artists").forEachIndexed { i,label -> StudioChip(label,filter==i) {filter=i} }
                 }
             }

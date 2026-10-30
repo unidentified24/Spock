@@ -58,7 +58,6 @@ class MainActivity : ComponentActivity() {
 
         super.onCreate(savedInstanceState)
         SongPlayer.onBrowserNeeded=browserHost
-        this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
 
         // Ask for notification permission (Android 13+) so the media notification shows.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

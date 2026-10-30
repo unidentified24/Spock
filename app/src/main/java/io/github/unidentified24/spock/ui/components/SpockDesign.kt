@@ -107,6 +107,15 @@ fun StudioAction(title: String, subtitle: String, icon: ImageVector, onClick: ()
 }
 
 @Composable
+fun StudioShortcut(title:String,icon:ImageVector,onClick:()->Unit) {
+    Column(Modifier.fillMaxWidth().clip(StudioShape).background(GridBackground).clickable(onClick=onClick).padding(16.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Icon(icon,null,tint=AppPalette,modifier=Modifier.size(28.dp))
+        Text(title,color=Color.White,style=MaterialTheme.typography.titleSmall)
+    }
+}
+
+@Composable
 fun StudioEmpty(title: String, description: String) {
     StudioCard(Modifier.padding(20.dp).fillMaxWidth()) {
         Icon(Icons.Default.GraphicEq,null,tint=AppPalette,modifier=Modifier.size(32.dp))
@@ -179,7 +188,7 @@ fun StudioCollection(nav:NavController,title:String,subtitle:String,cover:String
     var sort by remember { mutableIntStateOf(0) }
     val display=remember(songs,sort) { if(sort==1) songs.sortedBy { it.title.lowercase() } else songs }
     menu?.let { song -> SongOptionsSheet(song,nav,context,onDismiss={ onMenuDismiss(song);menu=null }) }
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(nav,title,back=true) }
         item {
             StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {

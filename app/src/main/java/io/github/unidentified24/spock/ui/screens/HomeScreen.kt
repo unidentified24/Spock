@@ -35,20 +35,8 @@ fun HomeScreen(navController:NavController) {
     val feed=(home as? Response.Success)?.data
     val releases=(albums as? Response.Success)?.data.orEmpty()
     val creators=(artists as? Response.Success)?.data.orEmpty()
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"A sound of\nyour own.") }
-        item {
-            val context=LocalContext.current
-            var help by remember{mutableStateOf(!context.getSharedPreferences("onboarding",0).getBoolean("navigation22",false))}
-            if(help)StudioCard(Modifier.padding(20.dp).fillMaxWidth()) {
-                Text("Your shortcuts",color=Color.White,style=MaterialTheme.typography.titleMedium)
-                Text("Account opens settings and listening stats. Collection holds playlists, downloads and local files. Choose Player view while listening to switch artwork.",color=TextMuted)
-                Row {
-                    TextButton(onClick={navController.navigate(Routes.Connections.route)}){Text("Connect music")}
-                    TextButton(onClick={help=false;context.getSharedPreferences("onboarding",0).edit().putBoolean("navigation22",true).apply()}){Text("Got it")}
-                }
-            }
-        }
         item {
             StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
                 Text("IN YOUR ORBIT",color=AppPalette,style=MaterialTheme.typography.labelSmall)

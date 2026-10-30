@@ -1,6 +1,16 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.6 uses app ID `io.github.unidentified24.spock`, version code 26 and interface revision 2.6. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.7 uses app ID `io.github.unidentified24.spock`, version code 27 and interface revision 2.7. Android 8.0+.
+
+[**Download APK releases →**](https://github.com/unidentified24/Spock/releases) · [Release notes](CHANGELOG.md)
+
+## Spock 2.7 — a cleaner listening room
+
+A new wave-ribbon logo, album-derived player colors and cover art in every visual style. Phone, landscape and tablet layouts adapt without covering content with navigation. Collection shortcuts fit small screens; everyday pages no longer show developer instructions or alternate-stream controls.
+
+Settings → Data exports and restores `.spockdata` backups of preferences, favorites, cached library and listening history. Files are validated before confirmation. Music files, device URI permissions and account credentials are excluded. Restoring a backup does not sign you into a service.
+
+Background native playback uses Media3 wake management and survives dismissal from Recents. The 2.6 song resolver and source race remain unchanged. Release publishing is still deferred; the Releases link opens the repository's release page.
 
 ## Spock 2.6 verified music playback
 

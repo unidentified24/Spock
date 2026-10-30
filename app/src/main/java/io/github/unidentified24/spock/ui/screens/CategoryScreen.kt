@@ -32,7 +32,7 @@ import kotlinx.coroutines.delay
 fun CategoryScreen(navController:NavController,genre:String,title:String) {
     val vm:CategoryViewModel=hiltViewModel();val state by vm.playlists.collectAsState()
     LaunchedEffect(genre){vm.load(genre)}
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item{StudioHeader(navController,title,back=true)}
         if(state is Response.Loading) item{Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}}
         items((state as? Response.Success)?.data.orEmpty()) {e->StudioMediaRow(e.name,e.subtitle,e.coverUri){navController.navigate(playlistRoute(e.spotifyId,e.name))}}

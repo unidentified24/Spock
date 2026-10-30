@@ -3,7 +3,9 @@ package io.github.unidentified24.spock
 import android.annotation.SuppressLint
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,8 +49,12 @@ fun App() {
         bottomBar = {
             MainBottomNavigation(navController = navController, bottomBarState = bottomBarState, bottomBarPlayerState)
         }
-    ) {
-        MyNavHost(navHostController = navController, bottomBarState = bottomBarState, bottomBarPlayerState)
+    ) { insets ->
+        Box(Modifier.fillMaxSize().padding(bottom=insets.calculateBottomPadding()),contentAlignment=Alignment.TopCenter) {
+            Box(Modifier.widthIn(max=1200.dp).fillMaxSize()) {
+                MyNavHost(navHostController = navController, bottomBarState = bottomBarState, bottomBarPlayerState)
+            }
+        }
     }
 }
 

@@ -55,7 +55,7 @@ fun AccountScreen(navController:NavController) {
     val context=LocalContext.current;val story=listeningStory(null)
     LaunchedEffect(Unit){io.github.unidentified24.spock.data.api.ProfileCache.ensure(context)}
     val name=io.github.unidentified24.spock.data.api.ProfileCache.name ?: "Your space"
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item{StudioHeader(navController,"Hello,\n${name.substringBefore(' ')}.",back=true)}
         item {
             StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
@@ -84,7 +84,7 @@ fun AccountScreen(navController:NavController) {
 @Composable
 fun StatsScreen(navController:NavController) {
     var period by remember {mutableIntStateOf(1)};val story=listeningStory(listOf(7,30,null)[period])
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item {StudioHeader(navController,"This is\nyour rhythm.",back=true)}
         item {Row(Modifier.padding(horizontal=20.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){listOf("7 days","30 days","All time").forEachIndexed{i,label->StudioChip(label,period==i){period=i}}}}
         item {

@@ -29,7 +29,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 
 @Composable fun ConnectionsScreen(navController:NavController) {
- LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+ LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
   item{StudioHeader(navController,"Connected music",back=true)}
   item{Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){SourceSettings(navController)}}
  }

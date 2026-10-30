@@ -418,9 +418,8 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Stop playback + tear the service down when the app is swiped away.
-        SongPlayer.pause()
-        stopSelf()
+        // The foreground session survives dismissal of the activity.
+        if (!SongPlayer.isPlaying() && mediaSession?.player?.playWhenReady != true) stopSelf()
     }
 
     override fun onDestroy() {

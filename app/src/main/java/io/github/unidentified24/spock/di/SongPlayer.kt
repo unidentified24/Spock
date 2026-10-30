@@ -1284,6 +1284,7 @@ object SongPlayer {
                     io.github.unidentified24.spock.deezer.DeezerAwareDataSourceFactory(cacheDataSourceFactory(context)),
                 ),
             )
+            .setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
             .setLoadControl(buffer)
             .setRenderersFactory(renderers)
             .setAudioAttributes(buildAudioAttributes(), handleAudioFocus)

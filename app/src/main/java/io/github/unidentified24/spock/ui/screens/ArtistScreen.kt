@@ -37,7 +37,7 @@ fun ArtistScreen(navController:NavController,artistName:String,artistId:String="
     var following by remember(data?.id,followed) {mutableStateOf(data?.id in followed)}
     var menu by remember {mutableStateOf<SongsModel?>(null)};val player:PlayerViewModel=hiltViewModel()
     menu?.let {SongOptionsSheet(it,navController,context,onDismiss={menu=null})}
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item {StudioHeader(navController,data?.name ?: artistName,back=true)}
         item {StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
             StudioCover(data?.headerImage?.ifBlank {data.avatarImage}.orEmpty(),Modifier.fillMaxWidth().aspectRatio(1.7f))

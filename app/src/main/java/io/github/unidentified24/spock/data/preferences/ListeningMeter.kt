@@ -14,7 +14,7 @@ object ListeningMeter {
         runCatching {ListeningSample(LocalDate.parse(row.getString("date")),row.optInt("songId"),row.optString("title"),row.optString("artist"),row.optLong("ms"))}.getOrNull()
     }
 
-    private val clock = PlaybackClock()
+    private var clock = PlaybackClock()
     private var ledger: JSONObject? = null
     private var lastFlush = 0L
     private var dirty = false
@@ -35,6 +35,12 @@ object ListeningMeter {
             context.getSharedPreferences("listening_meter", 0).edit().putString("ledger", rows.toString()).apply()
             lastFlush = now; dirty = false
         }
+    }
+    @Synchronized fun flush(context:Context) {
+        if(dirty){context.getSharedPreferences("listening_meter",0).edit().putString("ledger",data(context).toString()).commit();dirty=false}
+    }
+    @Synchronized fun replaceFromBackup(context:Context,write:()->Unit) {
+        flush(context);write();ledger=null;dirty=false;clock=PlaybackClock()
     }
     @Synchronized private fun rows(context: Context): List<JSONObject> = data(context).let { d -> d.keys().asSequence().map { d.getJSONObject(it) }.toList() }
     fun milliseconds(context: Context) = rows(context).sumOf { it.optLong("ms") }

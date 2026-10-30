@@ -36,7 +36,7 @@ fun SearchScreen(navController:NavController) {
     var tab by remember { mutableIntStateOf(0) }; var menu by remember { mutableStateOf<SongsModel?>(null) }
     LaunchedEffect(query) { vm.search(query) }
     menu?.let {SongOptionsSheet(it,navController,context,onDismiss={menu=null})}
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"Follow your curiosity.") }
         item {
             Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {

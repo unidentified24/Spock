@@ -29,14 +29,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(navController:NavController,section:String="sound") {
     val context=LocalContext.current
-    var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"about"->3;else->0})}
-    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+    var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"about"->4;else->0})}
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item {StudioHeader(navController,"Settings",back=true)}
         item {Row(Modifier.padding(horizontal=20.dp).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("Connections","Sound","Appearance","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
+            listOf("Connections","Sound","Appearance","Data","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
         }}
         item {Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             when(tab) {
@@ -44,7 +45,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
                 1 -> SoundSettings()
                 2 -> {
                     Text("Layout",color=TextMuted,style=MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){SpockLayout.entries.forEach {layout->StudioChip(layout.label,currentLayout==layout){currentLayout=layout;context.getSharedPreferences("appearance",0).edit().putString("layout",layout.name).apply()}}}
+                    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){SpockLayout.entries.forEach {layout->StudioChip(layout.label,currentLayout==layout){currentLayout=layout;context.getSharedPreferences("appearance",0).edit().putString("layout",layout.name).apply()}}}
                     Text("Choose your atmosphere.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
                     SpockLook.entries.forEach {look->
                         Row(Modifier.fillMaxWidth().clip(StudioShape).background(look.surface).border(1.dp,if(currentLook==look)look.accent else Color.Transparent,StudioShape)
@@ -55,8 +56,8 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
                             if(currentLook==look)Icon(Icons.Default.Check,null,tint=look.accent)
                         }
                     }
-                    Text("The whole app follows this theme.",color=TextMuted)
                 }
+                3 -> BackupSettings()
                 else -> {
                     SpockMark(Modifier.size(96.dp))
                     Text("Spock ${io.github.unidentified24.spock.BuildConfig.VERSION_NAME}",color=Color.White,style=MaterialTheme.typography.headlineMedium)
@@ -70,7 +71,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
                     StudioAction("Source & credits","Independent, open source · GPL v3",Icons.Default.Code){
                         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/unidentified24/Spock")))
                     }
-                    Text("Spock rebuilds the interface on an inherited open-source playback base. Upstream credits and licenses remain in the repository.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
+                    StudioAction("Releases","APK downloads and release notes",Icons.Default.OpenInNew){context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/unidentified24/Spock/releases")))}
                 }
             }
         }}
@@ -87,9 +88,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     var instant by remember {mutableStateOf(isWebPlaybackEnabled(context))}
     StudioCard(Modifier.fillMaxWidth()) {
         Icon(Icons.Default.Bolt,null,tint=AppPalette)
-        Text("The first ready audio plays.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
-        Text("Spotify and enabled native sources start together. Spock plays the first verified audio and prepares one next track in the background.",color=TextMuted)
-        SourceToggle("Spock instant start","Includes your existing Spotify connection in the race. A slow browser does not hold up ready native audio.",instant){instant=it;setWebPlaybackEnabled(context,it)}
+        SourceToggle("Spock instant start","Spotify playback",instant){instant=it;setWebPlaybackEnabled(context,it)}
     }
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("YouTube Music",if(isYoutubeLoggedIn(context))"Connected" else "Anonymous · connect for account access",yt){yt=it;setYouTubeSourceEnabled(context,it)}
@@ -105,7 +104,6 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     }
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("FLAC","Participates when your sound quality is Lossless",flac){flac=it;setFlacSourceEnabled(context,it)}
-        Text("Experimental community services can be unavailable. YouTube and Deezer keep competing.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={enableFlacOverWifi(context);flac=true;wifiFlac=true}) {Text(if(wifiFlac&&flac)"FLAC included over Wi-Fi ✓" else "Include FLAC over Wi-Fi")}
         if(wifiFlac&&flac)Text("Enabled on Wi-Fi, including metered Wi-Fi. Mobile data keeps its own quality setting.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
         Text(io.github.unidentified24.spock.lossless.LosslessRegistry.lastPublicResult,color=TextMuted,style=MaterialTheme.typography.bodySmall)
@@ -113,7 +111,6 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     }
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("SoundCloud","Public playable tracks · no account setup",sc){sc=it;setSoundCloudEnabled(context,it)}
-        Text("Availability depends on the recording and region. Spock rejects obvious covers, remixes and previews.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
     }
     StudioAction("Spotify connection","Your library, playlists and recommendations",Icons.Default.AccountCircle){nav.navigate(Routes.Login.route)}
 }
