@@ -116,9 +116,10 @@ object DeezerSource {
         isrc: String? = null,
         searchQuery: String? = null,
         expectedDurationSec: Int = 0,
+        qualityCap: Int = 9,
     ): Result {
         if (getDeezerArl(context) == null) return Result.NotLoggedIn
-        val raw = resolveRaw(context, spotifyId, isrc, searchQuery, expectedDurationSec) ?: return Result.NotFound
+        val raw = resolveRaw(context, spotifyId, isrc, searchQuery, expectedDurationSec,qualityCap) ?: return Result.NotFound
         val uri = "deezer://stream" +
             "?u=${URLEncoder.encode(raw.url, "UTF-8")}" +
             "&id=${raw.trackId}" +

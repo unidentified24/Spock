@@ -1,31 +1,40 @@
-# Spock 2.3 — offline reliability and polish
+# Spock 2.4 — Spotify-first playback and prepared native handoff
 
-App ID: `io.github.unidentified24.spock`. App/interface version: 2.3. Android version code: 23.
+Package: `io.github.unidentified24.spock`. App/interface version: 2.4. Version code: 24.
 
-## Changes
+## Behavior
 
-- Downloads now has saved, pending and failed sections with progress, individual/all cancellation and Retry/Dismiss. Home includes a direct Downloads shortcut. It no longer depends on successfully loading a Spotify collection.
-- Ranged downloads validate offsets, total length and individual response lengths. Interrupted responses resume from the bytes actually received. A server returning a full response to a resume request restarts the file, preventing duplicated bytes. Empty responses, HTML/JSON, inconsistent ranges and incomplete declared lengths cannot be recorded as successful downloads.
-- Files are checked for a supported audio container before being added to the offline library. When Android can read duration, catalog tracks shorter than 70% are rejected as previews. Unsupported metadata readers do not veto otherwise valid transport/container checks.
-- Saved files take priority over network playback and source overrides. Spotify download lookup uses the stable track identity rather than changeable search metadata. Missing/empty files no longer appear downloaded. Existing damaged files from earlier versions may need removal and re-download; the app does not silently delete all old downloads.
-- YouTube downloads preserve source-client headers, use identity encoding for byte ranges, and save WebM versus MP4 with the appropriate extension. Download quality caps Deezer quality; compressed downloads avoid unnecessary FLAC attempts. A provider lookup error can fall back to another provider. Cancellation closes request-owned connections, releases the download slot and removes partial files. Failure messages are recorded per track.
-- Local imports can be copied into private offline storage through Download, without looking for the song online. The original file stays in its folder. Device scanning, file/folder pickers and file-manager opening remain available. A selected local-only mode is remembered on startup; notification permission is not requested repeatedly after refusal.
-- Corrected garbled punctuation in track rows and search. Retained the waveform S logo, bundled Montserrat font, eight themes, Studio/Compact/Classic layouts and five saved player views: Artwork, Record, Sound waves, Spectrum and Orbit. Animated views are decorative and follow play/pause; they do not read the microphone.
-- Account has no link back to itself. Settings opens sound controls; Connected music opens provider setup. Collection uses collision-safe identities and handles failed online fetches while preserving local/offline access.
-- Retained updater checks for official HTTPS release paths, numeric versions, available SHA-256 digests, package ID, newer build code and matching signing certificate. Manual checks bypass skipped versions; failures display useful errors. Android still confirms installation.
+- A selected Spotify catalog track first uses Spotify's own protected web playback, reusing Spock's existing login cookie. Local files and saved downloads retain immediate native/offline playback.
+- Spock retains its interface, account connection, navigation and queue. The browser is a playback engine only. No SpotiDuck login UI, interface, styles, icons, ad filters or full wrapper scripts are included. The independently written bridge uses desktop browser identity, scoped early initialization and the existing authenticated page. Protected audio remains handled by Spotify and Android.
+- The player's normal status uses Spock branding rather than provider/codec names. Device names in supported Spotify browser-registration fields are changed to Spock. Spotify's eventual device label is server-controlled and still needs live-account verification. Internal source/quality metadata is preserved for routing; changing a label does not change the audio codec.
+- While a track plays, enabled YouTube, Deezer and lossless providers resolve the next queue item concurrently. Candidates must prepare buffered native audio and pass duration checks. A separate paused, muted player retains the best prepared candidate. FLAC is preferred, with higher advertised bit depth breaking ties; MP3 320 and Opus follow. Equal-ranked candidates retain the first result. This is a selection policy, not a claim about subjective audio quality or the universally fastest server.
+- At two seconds remaining, Spock locks the next track's route. If native audio is not ready, the existing Spotify browser session is retained for the next song. Late candidates cannot override that decision. The next song is not started two seconds early, and the current song is not interrupted for a quality upgrade.
+- At the boundary, a prepared native player is promoted directly. Browser playback is stopped and acknowledged first. A browser that cannot acknowledge stopping is destroyed before native playback starts. Native preparation never plays audibly. Stale play attempts, cancelled provider requests and obsolete queue preparations are rejected.
+- Track selections use generation checks, not just song-title equality. Queue changes and seeking invalidate preparation. Pause, repeat, manual next/previous and automatic queue advancement remain separate. Natural completion is detected outside the UI. Failures stop on the selected track with recovery controls rather than cycling through the queue.
+- Browser startup is bounded (5 seconds for an initialized compatible page; up to 14 seconds for cold startup). Native recovery resolves concurrently during that wait. Browser playback must show advancing time for the selected track; a Pause button or DRM-capability response alone is insufficient. A confirmed browser stream with ten seconds of playing/buffering without progress gets one native recovery attempt at its saved position.
+- The browser stays warm between requests rather than reloading for every track when its command path is available. Unsupported document-start scripting, unavailable protected playback, missing login, incompatible accounts and failed browser starts fall back to enabled native sources.
+- Preparation is bounded to one transient native preparation at a time, without taking audio focus. Queued short-lived sources are refreshed near the boundary when necessary. Lossless participation follows the selected network quality; Deezer resolution is capped by the same setting and account entitlement.
+- Connected music exposes Spock instant start, enabled by default. Turning it off retains the native-only playback path. Hybrid mode uses song-boundary handoffs; the existing crossfade path is used in native-only mode. Turning next-track preparation off prevents background native preparation.
 
 ## Verification
 
-- Signed release assembly succeeded. 69 offline regression tests passed: 61 app, 6 streaming, 2 Spotify. Twelve new tests cover download recovery, server response validation, cancellation, stable identity and missing/container files.
-- Installed the signed APK on the available Android API 37 emulator. With Wi-Fi and mobile data disabled and no Spotify login, Collection opened without a crash.
-- Generated a 60-second WAV test tone, placed it in Android's Downloads directory, granted audio access, scanned it and played it. Android's media session reported PLAYING with buffered audio and no error.
-- Used Download on that local track, verified it appeared in the offline library, deleted the original test file, force-stopped/reopened the app and played the private saved copy while networking remained disabled. The player displayed Downloaded and Android reported PLAYING without error.
-- Opened Account, Settings and Connected music as distinct destinations; observed no duplicate Account control on these pages. Selected Compact/Clean graphite and exercised Artwork, Record and Sound waves. Final APK reinstallation and startup checks are recorded with the delivery artifacts.
+- Release assembly and package signing are checked for this delivery; the generated delivery report adds the exact APK hash and test results.
+- 91 JVM unit tests: 83 app, 6 streaming, 2 Spotify. New tests exercise deadline locking, late results, reordered queues, same-track reselection, first/stale browser positions, pause near the end, natural completion and background quality selection/cancellation.
+- Eleven Node checks execute the actual shipped JavaScript in an isolated browser fixture. They cover origin scoping, desktop identity, inactive audio blocking, Spock registration naming, unrelated requests, playback state, stop acknowledgement, stale commands, resume generations, song completion and ignoring decorative-video completion. CI runs these alongside Android build/unit checks.
+- The signed Android build was exercised in a temporary Android API 37 emulator. Generated 20-second local tracks A and B were placed outside Spock's Music folder. With Wi-Fi and mobile data disabled, A played, automatic playback advanced to B, and the queue stopped at its end without an app crash. Final-build verification is recorded separately with the delivery artifacts.
 
-## Limits
+## Validation limits
 
-The user's exact Spotify collection and signed-in Deezer/YouTube/FLAC services were not available in the emulator. This does not prove every provider/song works or reproduce the user's device-specific Collection crash. File/folder grants, background limits and update installation still need testing on the user's phone. Local release lint/annotation extraction were excluded in this environment; GitHub runs the ordinary debug build and unit tests. The previous 2.2 GitHub check passed.
+The emulator has no signed-in Spotify, Deezer or YouTube account. Actual Spotify playback, Connect branding, account restrictions, browser-to-native transitions, screen-off protected audio and a long multi-track listening session remain unverified on the user's phone. Browser fixture tests validate our bridge logic, not Spotify's private server protocol. Spotify page structure or protocol changes can require maintenance.
 
-Downloads currently run in-process: keep Spock open while saving. Interrupted app/process downloads can be retried; background restart persistence is not implemented. Audio/container checks reject common bad responses but cannot prove every downloaded recording is correct. Smooth online playback still depends on the enabled services, account access, recording availability and network.
+The two-second point is a routing decision, not a guarantee that Spotify has already buffered the next recording. The browser keeps its session warm but does not play the next track underneath the current song. DRM, server and network startup can still create a gap. If every enabled provider is unavailable, playback cannot be guaranteed.
 
-The repository is public. Automatic distribution of 2.3 requires a stable public GitHub release containing the signed `Spock-2.3.apk`. Live publishing remains deferred as requested; this work updates source and provides the signed local APK without publishing a live release.
+Local release lint/annotation extraction are excluded in this build environment. GitHub performs the ordinary debug assembly, JVM tests and JavaScript checks. No live release is published: automatic APK distribution remains deferred as previously requested.
+
+The offline/download safeguards, local discovery, Collection fixes, themes and five player presentations from 2.3 are retained. Signing keys, passwords and private backups remain excluded from source archives and GitHub.
+
+## Technical references
+
+- Android WebView document-start scripting: https://developer.android.com/reference/androidx/webkit/WebViewCompat
+- Android Media3 preparation/preloading: https://developer.android.com/media/media3/exoplayer/preloading-media/preloadmanager
+- Reference project behavior/credits: https://github.com/23fpsz/SpotiDuck-Releases

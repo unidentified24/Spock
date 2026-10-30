@@ -100,7 +100,9 @@ class PlaybackService : MediaLibraryService() {
 
         // As the hidden web player streams, keep the notification in sync and swap
         // the session between the web player (during web playback) and the ExoPlayer.
+        SongPlayer.onEngineChanged = { syncSessionPlayer() }
         SpotifyWebPlayer.onStateChanged = {
+            SongPlayer.onWebStateChanged()
             syncSessionPlayer()
             if (showingWeb) {
                 webPlayer?.refresh()
@@ -182,7 +184,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** Advance the in-app queue one step in the given direction and start it. */
-    private fun advance(forward: Boolean) {
+    private fun advance(forward: Boolean, automatic:Boolean=false) {
         val queue = currentSongState.queue.value
         if (queue.isEmpty()) return
         val curId = currentSongState.songId.value
@@ -199,7 +201,7 @@ class PlaybackService : MediaLibraryService() {
             song.coverUri, song.title, song.singer, true,
             song.id, nextIdx, currentSongState.album.value
         )
-        SongPlayer.playSong(song.url, applicationContext)
+        SongPlayer.playSong(song.url, applicationContext,automatic=automatic)
     }
 
     /**
@@ -217,7 +219,7 @@ class PlaybackService : MediaLibraryService() {
         val queue = currentSongState.queue.value
         val cur = queue.indexOfFirst { it.id == currentSongState.songId.value }
         if (cur in 0 until queue.size - 1) {
-            advance(forward = true)
+            advance(forward = true,automatic=true)
             return
         }
         serviceScope.launch {
@@ -231,7 +233,7 @@ class PlaybackService : MediaLibraryService() {
                 return@launch
             }
             currentSongState.updateQueue(currentSongState.queue.value + fresh)
-            advance(forward = true)
+            advance(forward = true,automatic=true)
         }
     }
 
@@ -428,6 +430,8 @@ class PlaybackService : MediaLibraryService() {
         SongPlayer.onTrackEnded = null
         SongPlayer.onPreloadedTrackStarted = null
         SpotifyWebPlayer.onStateChanged = null
+        SongPlayer.onEngineChanged=null
+        SongPlayer.release()
         webPlayer?.release()
         webPlayer = null
         mediaSession?.release()

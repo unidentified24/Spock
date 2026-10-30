@@ -82,10 +82,12 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     var yt by remember {mutableStateOf(isYouTubeSourceEnabled(context))}
     var flac by remember {mutableStateOf(isFlacSourceEnabled(context))}
     var dz by remember {mutableStateOf(isDeezerRaceEnabled(context))}
+    var instant by remember {mutableStateOf(isWebPlaybackEnabled(context))}
     StudioCard(Modifier.fillMaxWidth()) {
         Icon(Icons.Default.Bolt,null,tint=AppPalette)
-        Text("First ready. First played.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
-        Text("Enabled services look together. The first usable stream plays and the others stop. Fastest playback can be compressed audio.",color=TextMuted)
+        Text("A quick start. A prepared next song.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
+        Text("Spock uses your Spotify session for a tapped song, while preparing the next track from enabled sources. Two seconds before the end, an unprepared next track stays on Spotify playback.",color=TextMuted)
+        SourceToggle("Spock instant start","Uses your existing Spotify connection. Availability depends on your account and Android System WebView.",instant){instant=it;setWebPlaybackEnabled(context,it)}
     }
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("YouTube Music",if(isYoutubeLoggedIn(context))"Connected" else "Anonymous · connect for account access",yt){yt=it;setYouTubeSourceEnabled(context,it)}

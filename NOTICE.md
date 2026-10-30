@@ -1,5 +1,7 @@
 # Spock and its upstreams
 
+Spock 2.4's browser playback design was informed by inspection of the user-supplied SpotiDuck v1.2.5 package (23fpsz, built on deviato's Spotify web wrapper). The Spock playback bridge is an independent implementation. SpotiDuck's interface, login UI, icons, styles, ad filters and complete wrapper scripts are not bundled. Spock continues to use its existing Spotify connection. See https://github.com/23fpsz/SpotiDuck-Releases for the reference project's documentation and credits.
+
 Spock is an independent downstream fork of a fork of **spotui**. It is not a ground-up rewrite, an official Spotify app, or affiliated with Spotify AB.
 
 The application previously used the `com.music.spotui` identifier. Spock 1.7 moves application-owned source to `io.github.unidentified24.spock`. This identity change does not remove or replace authorship of inherited code.

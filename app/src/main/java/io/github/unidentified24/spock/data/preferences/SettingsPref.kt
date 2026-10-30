@@ -108,12 +108,11 @@ fun isYoutubeLoggedIn(c: Context): Boolean =
 
 /**
  * Play audio through Spotify's own web player in a hidden WebView (real Spotify
- * streaming, no decryption/bypass). DEFAULT OFF (and hidden from Settings) — the
- * YouTube/FLAC engine is the primary source; this path is real-time only with no
- * download/crossfade support.
+ * streaming). The hybrid route starts catalog selections here and prepares the
+ * next native source separately. Downloads remain a native-only operation.
  */
-fun isWebPlaybackEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_WEB_PLAYBACK, false)
-fun setWebPlaybackEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_WEB_PLAYBACK, v).apply()
+fun isWebPlaybackEnabled(c: Context): Boolean = prefs(c).getBoolean("spock_hybrid_playback", true)
+fun setWebPlaybackEnabled(c: Context, v: Boolean) = prefs(c).edit().putBoolean("spock_hybrid_playback", v).apply()
 
 fun isVideoFallbackEnabled(c: Context): Boolean = prefs(c).getBoolean(KEY_VIDEO_FALLBACK, true)
 fun setVideoFallbackEnabled(c: Context, v: Boolean) =

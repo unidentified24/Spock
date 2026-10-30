@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onNewIntent(incoming:android.content.Intent){super.onNewIntent(incoming);setIntent(android.content.Intent());openAudio(incoming)}
     private var controllerFuture: ListenableFuture<MediaController>? = null
+    private val browserHost:()->Unit={if(!isDestroyed)io.github.unidentified24.spock.di.SpotifyWebPlayer.attach(this)}
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?){
 
         super.onCreate(savedInstanceState)
+        SongPlayer.onBrowserNeeded=browserHost
         this.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
 
         // Ask for notification permission (Android 13+) so the media notification shows.
@@ -101,8 +103,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart(){super.onStart();if(intent?.action==android.content.Intent.ACTION_VIEW){val pending=intent;setIntent(android.content.Intent());openAudio(pending)}}
     override fun onDestroy() {
         super.onDestroy()
+        if(SongPlayer.onBrowserNeeded===browserHost)SongPlayer.onBrowserNeeded=null
         controllerFuture?.let { MediaController.releaseFuture(it) }
-        SongPlayer.release()
+        // The foreground playback service owns release, including background audio.
     }
 }
 

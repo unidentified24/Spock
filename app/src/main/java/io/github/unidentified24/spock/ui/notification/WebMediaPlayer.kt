@@ -69,7 +69,7 @@ class WebMediaPlayer(
 
         return State.Builder()
             .setAvailableCommands(commands)
-            .setPlaybackState(Player.STATE_READY)
+            .setPlaybackState(if(SpotifyWebPlayer.confirmed)Player.STATE_READY else Player.STATE_BUFFERING)
             .setPlayWhenReady(
                 SpotifyWebPlayer.isPlaying,
                 Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,

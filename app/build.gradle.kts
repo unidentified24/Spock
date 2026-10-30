@@ -128,6 +128,7 @@ dependencies {
 
     //Storage Access Framework folder enumeration (local music import)
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.webkit:webkit:1.12.1")
 
     //okhttp + timber (used by the ported YouTube streaming flow)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

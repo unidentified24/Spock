@@ -175,7 +175,7 @@ fun PlayerScreen(navController:NavController) {
     val context=LocalContext.current
     var failed by remember(id){mutableStateOf(false)}
     var label by remember(id){mutableStateOf("")}
-    LaunchedEffect(id){while(true){failed=SongPlayer.playbackFailed;label=SongPlayer.playbackMessage.ifBlank {SongPlayer.currentSource+" · "+SongPlayer.currentQuality};delay(600)}}
+    LaunchedEffect(id){while(true){failed=SongPlayer.playbackFailed;label=SongPlayer.playbackMessage.ifBlank {"Spock · your music"};delay(600)}}
     Row(Modifier.fillMaxWidth().clip(StudioShape).background(GridBackground).padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
         Icon(Icons.Default.GraphicEq,null,tint=AppPalette)
         Column(Modifier.weight(1f)) {

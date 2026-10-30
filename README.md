@@ -1,6 +1,12 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.3 uses app ID `io.github.unidentified24.spock`, version code 23 and interface revision 2.3. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.4 uses app ID `io.github.unidentified24.spock`, version code 24 and interface revision 2.4. Android 8.0+.
+
+## Spock 2.4 playback handoff
+
+Selected Spotify tracks first use your existing Spotify session for browser playback. While listening, Spock prepares the next track from enabled native sources, preferring the best prepared quality. Two seconds before the end it locks the route: buffered native audio, or the warm Spotify browser session. Local files and downloads remain native and offline. The interface and playback device registration use Spock branding. Connected music → Spock instant start controls the hybrid route; crossfade remains in native-only mode.
+
+Browser/account support varies. The signed-in Spotify route and browser-to-native transitions require validation on the user's phone; no claim that every track will play is made. See BUILD_REPORT.md for the startup limits, checks and known constraints. SpotiDuck's streaming approach informed an independent playback bridge; its interface and account connection are not incorporated.
 
 ## Spock 2.3 offline reliability
 
