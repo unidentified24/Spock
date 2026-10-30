@@ -1,5 +1,13 @@
 # Changes
 
+## 2.8
+
+- Return to the original sound-bars logo with theme-aware in-app colors, neutral launcher/splash branding and a monochrome Android icon layer.
+- Download complete playlists and keep ordered offline playlist listings, including repeated tracks sharing one audio file.
+- Add per-track progress, cancellation, missing-only retry and safe removal of playlist listings without deleting shared songs.
+- Wait for complete playlist pagination before enabling the download action; surface incomplete page loads for refresh.
+- Register matching metadata for downloads started before a song has ever played. Keep the playback resolver unchanged.
+
 ## 2.7
 
 - New image-based Spock wave logo across launcher, splash and app branding.

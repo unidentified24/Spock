@@ -31,8 +31,21 @@ import kotlinx.coroutines.delay
 @Composable
 fun PlaylistScreen(navController:NavController,playlistId:String,playlistName:String="") {
     val vm:PlaylistViewModel=hiltViewModel();val response by vm.songs.collectAsState();val info by vm.playlist.collectAsState()
+    val allLoaded by vm.allTracksLoaded.collectAsState()
     LaunchedEffect(playlistId){vm.loadPlaylist(playlistId)}
-    val songs=(response as? Response.Success)?.data.orEmpty();val model=(info as? Response.Success)?.data
-    StudioCollection(navController,model?.name?.ifBlank {playlistName} ?: playlistName,
-        model?.artists?.ifBlank {"A collection from your Spotify library"} ?: "Playlist",model?.coverUri ?: songs.firstOrNull()?.coverUri.orEmpty(),songs,response is Response.Loading)
+    val context=LocalContext.current.applicationContext
+    var cached by remember(playlistId){mutableStateOf<OfflinePlaylist?>(null)}
+    var savedSongs by remember(playlistId){mutableStateOf<Map<Int,SongsModel>>(emptyMap())}
+    LaunchedEffect(playlistId){withContext(Dispatchers.IO){getOfflinePlaylist(context,playlistId) to getDownloadedSongs(context).associateBy{it.id}}.let{cached=it.first;savedSongs=it.second}}
+    val online=(response as? Response.Success)?.data
+    val songs=online ?: cached?.playable(savedSongs).orEmpty();val model=(info as? Response.Success)?.data
+    val name=model?.name?.takeIf{it.isNotBlank()} ?: playlistName.ifBlank{cached?.name ?: "Playlist"}
+    val cover=model?.coverUri?.takeIf{it.isNotBlank()} ?: cached?.coverUri ?: songs.firstOrNull()?.coverUri.orEmpty()
+    val source=online ?: cached?.songs.orEmpty()
+    StudioCollection(navController,name,
+        model?.artists?.ifBlank {"Playlist"} ?: "Playlist",cover,songs,response is Response.Loading&&cached==null,
+        extra={
+            PlaylistDownloads(OfflinePlaylist(playlistId,name,cover,source),navController,loading=!allLoaded&&(online!=null||cached==null))
+            if(response is Response.Error)TextButton(onClick={vm.loadPlaylist(playlistId,force=true)}){Text("Refresh playlist")}
+        })
 }

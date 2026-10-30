@@ -1,8 +1,20 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.7 uses app ID `io.github.unidentified24.spock`, version code 27 and interface revision 2.7. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.8 uses app ID `io.github.unidentified24.spock`, version code 28 and interface revision 2.8. Android 8.0+.
 
 [**Download APK releases →**](https://github.com/unidentified24/Spock/releases) · [Release notes](CHANGELOG.md)
+
+## Spock 2.8 — original mark and offline playlists
+
+<img src="branding/spock-logo.svg" width="80" height="80" alt="Spock sound-bars logo">
+
+The original sound-bars identity returns as a light vector mark. In-app colors follow all eight themes; the neutral launcher/splash icon fits every palette and provides an Android monochrome themed-icon layer.
+
+Open a playlist and choose **Download playlist**. Completed downloads appear together under **Collection → Downloads → Offline playlists**, preserving the track order and repeated songs while sharing each saved audio file. Track progress, cancellation and missing-only retry use the existing download queue. The playlist list stays available without a Spotify connection. Wait for all playlist pages before starting a batch; incomplete page loads offer refresh rather than silently saving the first page.
+
+Keep Spock open while downloading. Pending transfers do not yet restart automatically after Android terminates the process; completed files and playlist membership persist, and Download remaining tracks resumes the missing items. Removing the offline playlist listing leaves shared songs in Downloads.
+
+The 2.7 playback resolver is unchanged. Public-song full-file downloads, saved start/end decoding and offline playlist batch/retry checks are documented in BUILD_REPORT.md. Live release publishing remains deferred.
 
 ## Spock 2.7 — a cleaner listening room
 

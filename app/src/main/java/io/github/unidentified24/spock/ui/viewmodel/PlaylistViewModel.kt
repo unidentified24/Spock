@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -53,15 +54,27 @@ class PlaylistViewModel @Inject constructor(
     }
 
     private var playlistKey: String? = null
+    @Volatile private var loadGeneration=0
+    private val _allTracksLoaded=MutableStateFlow(false)
+    val allTracksLoaded:StateFlow<Boolean> = _allTracksLoaded
 
-    fun loadPlaylist(playlistId: String) {
-        if (playlistKey == playlistId) return
+    fun loadPlaylist(playlistId: String, force:Boolean=false) {
+        if (!force && playlistKey == playlistId) return
         playlistKey = playlistId
+        val generation=++loadGeneration
+        _allTracksLoaded.value=false
+        _songs.value=Response.Loading()
+        _playlist.value=Response.Loading()
         viewModelScope.launch(Dispatchers.IO) {
-            repository.providePlaylist(playlistId).collect { _playlist.value = it }
+            try {repository.providePlaylist(playlistId).collect { if(loadGeneration==generation)_playlist.value = it }}
+            catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){if(loadGeneration==generation)_playlist.value=Response.Error("Couldn't load playlist details")}
         }
         viewModelScope.launch(Dispatchers.IO) {
-            repository.providePlaylistSongs(playlistId).collect { _songs.value = it }
+            try { repository.providePlaylistSongs(playlistId).collect { if(loadGeneration==generation)_songs.value = it } }
+            catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){if(loadGeneration==generation)_songs.value=Response.Error("Couldn't load the complete playlist")}
+            finally {if(loadGeneration==generation)_allTracksLoaded.value=true}
         }
     }
 }

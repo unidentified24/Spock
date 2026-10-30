@@ -168,8 +168,8 @@ fun Snackbar(showMessage : String) {
 fun ConfirmDownloadAllDialog(count: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { androidx.compose.material3.Text("Download $count tracks?") },
-        text = { androidx.compose.material3.Text("They are saved for offline playback. You can cancel from Downloads.") },
+        title = { androidx.compose.material3.Text("Download $count ${if(count==1)"track" else "tracks"}?") },
+        text = { androidx.compose.material3.Text("Saved for offline listening. Keep Spock open while downloading. You can cancel from Downloads.") },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = { onDismiss(); onConfirm() }) {
                 androidx.compose.material3.Text("Download")

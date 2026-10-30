@@ -15,6 +15,7 @@ import io.github.unidentified24.spock.data.api.SpotifySession
 import io.github.unidentified24.spock.ui.screens.SpotifyLoginScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
@@ -148,6 +149,11 @@ fun MyNavHost(
                 bottomBarPlayerState.value = playerState != ""
             }
             DownloadsScreen(navHostController)
+        }
+
+        composable("${Routes.OfflinePlaylist.route}/{id}",arguments=listOf(navArgument("id"){type=NavType.StringType})){entry->
+            LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
+            io.github.unidentified24.spock.ui.screens.OfflinePlaylistScreen(navHostController,entry.arguments?.getString("id").orEmpty())
         }
 
         composable("${Routes.Settings.route}?section={section}", arguments=listOf(navArgument("section"){defaultValue="sound"})){ entry ->

@@ -89,7 +89,7 @@ object Downloads {
     /** Download every track in a list (album/playlist). Each song dedupes and
      *  reports its own progress via the existing per-song machinery. */
     fun downloadAll(songs: List<io.github.unidentified24.spock.data.entity.SongsModel>, context: Context) {
-        songs.forEach { downloadSong(it, context) }
+        songs.distinctBy{it.id}.forEach { downloadSong(it, context) }
     }
 
     private val jobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
@@ -134,6 +134,10 @@ object Downloads {
             io.github.unidentified24.spock.data.preferences.isDownloaded(appContext, song.id.toString()) ||
             !downloading.add(query)
         ) return
+        SongPlayer.registerLossless(listOf(query to song.spotifyTrackId))
+        SongPlayer.registerDuration(listOf(query to song.durationMs))
+        SongPlayer.registerExplicit(listOf(query to song.explicit))
+        SongPlayer.registerMetadata(listOf(query to SongPlayer.TrackMatchMetadata(song.title,song.singer,song.album)))
         downloadingSongs[query] = song
         downloadProgress[query] = 0
         onDownloadsChanged?.invoke()

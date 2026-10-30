@@ -35,17 +35,19 @@ fun DownloadsScreen(navController:NavController) {
     val vm:PlayerViewModel=hiltViewModel()
     var pending by remember { mutableStateOf<List<Pair<SongsModel,Int>>>(emptyList()) }
     var failed by remember { mutableStateOf<List<Pair<SongsModel,String>>>(emptyList()) }
+    var playlists by remember { mutableStateOf<List<OfflinePlaylist>>(emptyList()) }
     var menu by remember { mutableStateOf<SongsModel?>(null) }
     LaunchedEffect(Unit) {
         while(true) {
             val snapshot=withContext(Dispatchers.IO) {
-                Triple(getDownloadedSongs(context),Downloads.downloadingSnapshot(),Downloads.failedSnapshot())
+                Triple(getDownloadedSongs(context),Downloads.downloadingSnapshot(),Downloads.failedSnapshot()) to getOfflinePlaylists(context)
             }
-            songs=snapshot.first;pending=snapshot.second;failed=snapshot.third
+            songs=snapshot.first.first;pending=snapshot.first.second;failed=snapshot.first.third;playlists=snapshot.second
             delay(750)
         }
     }
     menu?.let { song -> SongOptionsSheet(song,navController,context,onDismiss={menu=null}) }
+    val savedIds=remember(songs){songs.map{it.id}.toSet()}
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"Always with you.",eyebrow="OFFLINE",back=true) }
         item {
@@ -53,6 +55,12 @@ fun DownloadsScreen(navController:NavController) {
                 Text("${songs.size} saved ${if(songs.size==1) "track" else "tracks"}",color=Color.White,style=MaterialTheme.typography.headlineSmall)
                 Text("Saved audio plays from this device, even without a connection. Keep Spock open while downloading.",color=TextMuted)
                 Button(onClick={playStudioTrack(vm,songs,0,context)},enabled=songs.isNotEmpty()) {Text("Play saved music")}
+            }
+        }
+        if(playlists.isNotEmpty()) {
+            item {StudioSection("Offline playlists")}
+            items(playlists,key={"playlist:${it.id}"}) {playlist->
+                StudioMediaRow(playlist.name,"${playlist.songs.count{it.id in savedIds}} of ${playlist.songs.size} tracks saved",playlist.coverUri){navController.navigate(offlinePlaylistRoute(playlist.id))}
             }
         }
         if(pending.isNotEmpty()) {

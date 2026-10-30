@@ -20,6 +20,7 @@ sealed class Routes(
     object Queue : Routes(0, "Queue", "queue")
     object Liked : Routes(0, "Liked", "liked")
     object Downloads : Routes(0, "Downloads", "downloads")
+    object OfflinePlaylist : Routes(0, "Offline playlist", "offline-playlist")
     object Category : Routes(0, "Category", "category")
     object Login : Routes(0, "Login", "login")
     object Settings : Routes(0, "Settings", "settings")
@@ -34,6 +35,8 @@ sealed class Routes(
     object LocalFiles : Routes(0, "LocalFiles", "localfiles")
     object SpotiflacVerify : Routes(0, "SpotiflacVerify", "spotiflacverify")
 }
+
+fun offlinePlaylistRoute(id:String)="${Routes.OfflinePlaylist.route}/${android.net.Uri.encode(id)}"
 
 /** Builds a Browse-category route carrying the search genre and a display title. */
 fun categoryRoute(genre: String, title: String): String =

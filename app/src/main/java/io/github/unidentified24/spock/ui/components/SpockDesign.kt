@@ -12,6 +12,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -35,7 +39,17 @@ val StudioShape get() = RoundedCornerShape(if(currentLayout==SpockLayout.COMPACT
 
 @Composable
 fun SpockMark(modifier: Modifier = Modifier) {
-    Image(painterResource(R.drawable.spock_mark), "Spock", modifier.clip(RoundedCornerShape(12.dp)), contentScale=ContentScale.Crop)
+    val primary=AppPalette
+    val secondary=SecondaryPalette
+    Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(GridBackground).semantics { contentDescription="Spock" }) {
+        val scale=minOf(size.width,size.height)/108f
+        val left=(size.width-108f*scale)/2f
+        val top=(size.height-108f*scale)/2f
+        val bars=listOf(Triple(24f,48f,60f),Triple(34f,40f,68f),Triple(44f,32f,76f),Triple(54f,24f,84f),Triple(64f,36f,72f),Triple(74f,30f,78f),Triple(84f,44f,64f))
+        bars.forEachIndexed { index,(x,start,end) ->
+            drawLine(if(index<4)primary else secondary,Offset(left+x*scale,top+start*scale),Offset(left+x*scale,top+end*scale),strokeWidth=5.5f*scale,cap=StrokeCap.Round)
+        }
+    }
 }
 
 @Composable
@@ -182,7 +196,8 @@ fun playStudioTrack(vm:PlayerViewModel, songs:List<SongsModel>, index:Int, conte
 
 @Composable
 fun StudioCollection(nav:NavController,title:String,subtitle:String,cover:String,songs:List<SongsModel>,loading:Boolean=false,
-    extra: @Composable () -> Unit = {},onMenuDismiss:(SongsModel)->Unit={}) {
+    extra: @Composable () -> Unit = {},onMenuDismiss:(SongsModel)->Unit={},
+    emptyTitle:String="No tracks here yet",emptyDescription:String="Try refreshing your connection or add some music to this collection.") {
     val vm:PlayerViewModel=hiltViewModel(); val context=LocalContext.current
     var menu by remember { mutableStateOf<SongsModel?>(null) }
     var sort by remember { mutableIntStateOf(0) }
@@ -217,7 +232,7 @@ fun StudioCollection(nav:NavController,title:String,subtitle:String,cover:String
             }
         }
         if(loading) item { Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center) { CircularProgressIndicator() } }
-        else if(display.isEmpty()) item { StudioEmpty("No tracks here yet","Try refreshing your connection or add some music to this collection.") }
+        else if(display.isEmpty()) item { StudioEmpty(emptyTitle,emptyDescription) }
         itemsIndexed(display,key={i,s->"${s.id}:$i"}) { i,song ->
             StudioTrack(song,i,vm.currentSongId.value==song.id,{ playStudioTrack(vm,display,i,context) },{ menu=song })
         }

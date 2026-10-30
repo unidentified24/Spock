@@ -543,11 +543,14 @@ class Api @Inject constructor(
         }
         // First page right away, then keep paging until the whole playlist is loaded.
         var loaded = false
-        fetchAllPages(onPage = { items, _ ->
+        var expectedTotal = 0
+        val all = fetchAllPages(onPage = { items, total ->
+            expectedTotal = total
             loaded = true
             emit(Response.Success(items.mapNotNull { it.track?.toSongModel() }))
         }) { offset -> Spotify.playlistTracks(playlistId, limit = 100, offset = offset) }
         if (!loaded) emit(Response.Error("Couldn't load this playlist"))
+        else if (all.size < expectedTotal) emit(Response.Error("Couldn't load the complete playlist. Please try again."))
     }
 
     /**
