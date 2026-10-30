@@ -1,6 +1,10 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.2 uses app ID `io.github.unidentified24.spock`, version code 22 and interface revision 2.2. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.3 uses app ID `io.github.unidentified24.spock`, version code 23 and interface revision 2.3. Android 8.0+.
+
+## Spock 2.3 offline reliability
+
+Downloads show progress, cancellation and retryable failures, with a direct Home shortcut. Saved audio wins over remote source overrides and stays linked when Spotify search metadata changes. Missing/empty files no longer appear saved. Transfers validate byte ranges, restart safely when a server ignores resume, and reject incomplete responses and obvious non-audio files. Downloads respect the selected quality and use the correct YouTube client headers. Local imports can be copied into private offline storage through Download. Existing theme, player and navigation choices from 2.2 are retained. See BUILD_REPORT.md for validation evidence and limits.
 
 ## Spock 2.2 polish
 

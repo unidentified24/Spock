@@ -1,14 +1,31 @@
-# Spock 2.2 UI, collection and update fixes
+# Spock 2.3 — offline reliability and polish
 
-- Collection deduplicates remote/cached identities and uses collision-safe row keys. Library/account/artist fetch errors are handled without terminating the app, preserving offline shortcuts. Four regression tests cover duplicate identities and empty/offline lists. These address identified crash risks; the user's exact device crash has not been reproduced here.
-- Account no longer shows a link back to itself. Settings and Connected Music are separate screens; settings starts with sound, appearance and updates. Connections owns provider setup.
-- Local files can be scanned across the system audio index with permission or selected through file/folder pickers. The app can also open audio content URIs from Android's file manager without requiring files to move into a Spock folder. Temporary provider access may require choosing a file again after the sender's grant expires.
-- Five persistent player views: Artwork, Record, Sound Waves, Spectrum and Orbit. Ambient animations follow actual play/pause/buffering, do not read the microphone and are decorative rather than measured waveforms. Playback is not restarted when changing views.
-- Eight colour themes include Original green, Clean graphite and Rose quartz alongside the existing looks. Studio, Compact and Classic layouts are separate choices; Original green selects Classic navigation. New bold, three-band waveform S logo is a native editable vector.
-- New/returning-user shortcut guidance explains Account, Collection, local audio and Player view without blocking navigation.
-- Update check errors are distinct from an up-to-date result. Manual checks bypass skipped-version preferences. Numeric version validation prevents path traversal; only exact official GitHub release asset paths are accepted. GitHub SHA-256 digests, app package, newer build code and the installed signing certificate are checked before handing off to Android. Polling stops immediately when DownloadManager completes and has a five-minute deadline. Android still requires the user's installation confirmation.
-- A copied local diagnostic report includes at most the last exception class and ten code stack frames, without exception messages, URLs, tokens or account data. No crash data is transmitted automatically.
+App ID: `io.github.unidentified24.spock`. App/interface version: 2.3. Android version code: 23.
 
-Signed local release build and offline regression tests are performed for this delivery; the final report adds exact test counts, package identity and hash. Local lint/annotation extraction are excluded under environment restrictions. No device installation, visual device run, live storage-provider test, measured frame-time benchmark or signed-in provider playback test was possible here. Smooth playback and the reported Collection crash still need validation on the user's phone. If an error remains, Settings → About → Copy playback report now includes a privacy-minimal crash note.
+## Changes
 
-Automatic update delivery requires a public stable GitHub release with the exact signed Spock-version.apk asset. The user is making the repository public; visibility and existing release metadata are verified separately. This work does not publish a new live release.
+- Downloads now has saved, pending and failed sections with progress, individual/all cancellation and Retry/Dismiss. Home includes a direct Downloads shortcut. It no longer depends on successfully loading a Spotify collection.
+- Ranged downloads validate offsets, total length and individual response lengths. Interrupted responses resume from the bytes actually received. A server returning a full response to a resume request restarts the file, preventing duplicated bytes. Empty responses, HTML/JSON, inconsistent ranges and incomplete declared lengths cannot be recorded as successful downloads.
+- Files are checked for a supported audio container before being added to the offline library. When Android can read duration, catalog tracks shorter than 70% are rejected as previews. Unsupported metadata readers do not veto otherwise valid transport/container checks.
+- Saved files take priority over network playback and source overrides. Spotify download lookup uses the stable track identity rather than changeable search metadata. Missing/empty files no longer appear downloaded. Existing damaged files from earlier versions may need removal and re-download; the app does not silently delete all old downloads.
+- YouTube downloads preserve source-client headers, use identity encoding for byte ranges, and save WebM versus MP4 with the appropriate extension. Download quality caps Deezer quality; compressed downloads avoid unnecessary FLAC attempts. A provider lookup error can fall back to another provider. Cancellation closes request-owned connections, releases the download slot and removes partial files. Failure messages are recorded per track.
+- Local imports can be copied into private offline storage through Download, without looking for the song online. The original file stays in its folder. Device scanning, file/folder pickers and file-manager opening remain available. A selected local-only mode is remembered on startup; notification permission is not requested repeatedly after refusal.
+- Corrected garbled punctuation in track rows and search. Retained the waveform S logo, bundled Montserrat font, eight themes, Studio/Compact/Classic layouts and five saved player views: Artwork, Record, Sound waves, Spectrum and Orbit. Animated views are decorative and follow play/pause; they do not read the microphone.
+- Account has no link back to itself. Settings opens sound controls; Connected music opens provider setup. Collection uses collision-safe identities and handles failed online fetches while preserving local/offline access.
+- Retained updater checks for official HTTPS release paths, numeric versions, available SHA-256 digests, package ID, newer build code and matching signing certificate. Manual checks bypass skipped versions; failures display useful errors. Android still confirms installation.
+
+## Verification
+
+- Signed release assembly succeeded. 69 offline regression tests passed: 61 app, 6 streaming, 2 Spotify. Twelve new tests cover download recovery, server response validation, cancellation, stable identity and missing/container files.
+- Installed the signed APK on the available Android API 37 emulator. With Wi-Fi and mobile data disabled and no Spotify login, Collection opened without a crash.
+- Generated a 60-second WAV test tone, placed it in Android's Downloads directory, granted audio access, scanned it and played it. Android's media session reported PLAYING with buffered audio and no error.
+- Used Download on that local track, verified it appeared in the offline library, deleted the original test file, force-stopped/reopened the app and played the private saved copy while networking remained disabled. The player displayed Downloaded and Android reported PLAYING without error.
+- Opened Account, Settings and Connected music as distinct destinations; observed no duplicate Account control on these pages. Selected Compact/Clean graphite and exercised Artwork, Record and Sound waves. Final APK reinstallation and startup checks are recorded with the delivery artifacts.
+
+## Limits
+
+The user's exact Spotify collection and signed-in Deezer/YouTube/FLAC services were not available in the emulator. This does not prove every provider/song works or reproduce the user's device-specific Collection crash. File/folder grants, background limits and update installation still need testing on the user's phone. Local release lint/annotation extraction were excluded in this environment; GitHub runs the ordinary debug build and unit tests. The previous 2.2 GitHub check passed.
+
+Downloads currently run in-process: keep Spock open while saving. Interrupted app/process downloads can be retried; background restart persistence is not implemented. Audio/container checks reject common bad responses but cannot prove every downloaded recording is correct. Smooth online playback still depends on the enabled services, account access, recording availability and network.
+
+The repository is public. Automatic distribution of 2.3 requires a stable public GitHub release containing the signed `Spock-2.3.apk`. Live publishing remains deferred as requested; this work updates source and provides the signed local APK without publishing a live release.

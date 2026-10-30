@@ -53,8 +53,9 @@ fun HomeScreen(navController:NavController) {
             StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
                 Text("IN YOUR ORBIT",color=AppPalette,style=MaterialTheme.typography.labelSmall)
                 Text("Pick up where you left off.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     StudioChip("Collection") { navController.navigate(Routes.Library.route) }
+                    StudioChip("Downloads") { navController.navigate(Routes.Downloads.route) }
                     StudioChip("History") { navController.navigate(Routes.History.route) }
                     StudioChip("Local") { navController.navigate(Routes.LocalFiles.route) }
                 }

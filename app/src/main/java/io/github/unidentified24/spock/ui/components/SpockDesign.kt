@@ -154,11 +154,11 @@ fun StudioTrack(song:SongsModel,index:Int,active:Boolean,onPlay:()->Unit,onMenu:
         .background(if(active) AppPalette.copy(alpha=.12f) else GridBackground)
         .combinedClickable(onClick=onPlay,onLongClick=onMenu).padding(10.dp),verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text(if(active) "â€¢" else "%02d".format(index+1),color=AppPalette,style=MaterialTheme.typography.labelMedium,modifier=Modifier.width(25.dp))
+        Text(if(active) "•" else "%02d".format(index+1),color=AppPalette,style=MaterialTheme.typography.labelMedium,modifier=Modifier.width(25.dp))
         StudioCover(song.coverUri,Modifier.size(46.dp))
         Column(Modifier.weight(1f)) {
             Text(song.title,color=if(active) AppPalette else Color.White,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text(song.singer+(if(song.explicit) " Â· E" else ""),color=TextMuted,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+            Text(song.singer+(if(song.explicit) " · E" else ""),color=TextMuted,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
         }
         IconButton(onClick=onMenu) { Icon(Icons.Default.MoreHoriz,"Song options",tint=TextMuted) }
     }
@@ -204,7 +204,7 @@ fun StudioCollection(nav:NavController,title:String,subtitle:String,cover:String
         item {
             Row(Modifier.fillMaxWidth().padding(20.dp,18.dp,20.dp,8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
                 Text("Tracklist",color=Color.White,style=MaterialTheme.typography.titleLarge)
-                StudioChip(if(sort==0) "In order" else "Title Aâ€“Z") { sort=1-sort }
+                StudioChip(if(sort==0) "In order" else "Title A–Z") { sort=1-sort }
             }
         }
         if(loading) item { Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center) { CircularProgressIndicator() } }

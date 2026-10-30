@@ -62,6 +62,7 @@ fun MyNavHost(
     val context = LocalContext.current
     // First launch (no Spotify session) lands on the login screen.
     val startDestination = when {
+        SpotifySession.spDc(context).isBlank() && context.getSharedPreferences("onboarding",0).getBoolean("localMode",false) -> Routes.Library.route
         SpotifySession.spDc(context).isBlank() -> Routes.Login.route
         io.github.unidentified24.spock.data.preferences.getPrimaryMusicSource(context) == null -> Routes.MusicSource.route
         else -> Routes.Home.route

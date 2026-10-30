@@ -144,7 +144,10 @@ fun SpotifyLoginScreen(navController: NavController) {
     if (!connectSpotify) {
         io.github.unidentified24.spock.ui.components.SpockWelcome(
             onConnect = { connectSpotify = true },
-            onLocal = { navController.navigate(Routes.LocalFiles.route) },
+            onLocal = {
+                context.getSharedPreferences("onboarding",0).edit().putBoolean("localMode",true).apply()
+                navController.navigate(Routes.LocalFiles.route)
+            },
         )
         return
     }

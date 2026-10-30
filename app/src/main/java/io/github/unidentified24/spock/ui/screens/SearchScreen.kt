@@ -40,7 +40,7 @@ fun SearchScreen(navController:NavController) {
         item { StudioHeader(navController,"Follow your curiosity.") }
         item {
             Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(query,{query=it},placeholder={Text("Songs, artists, albumsâ€¦")},singleLine=true,shape=StudioShape,modifier=Modifier.fillMaxWidth(),
+                OutlinedTextField(query,{query=it},placeholder={Text("Songs, artists, albums…")},singleLine=true,shape=StudioShape,modifier=Modifier.fillMaxWidth(),
                     leadingIcon={Icon(Icons.Default.Search,null)},trailingIcon={if(query.isNotEmpty()) IconButton(onClick={query=""}) {Icon(Icons.Default.Close,"Clear search")}})
                 if(query.isNotBlank()) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("All","Tracks","Artists","Albums","Podcasts").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}

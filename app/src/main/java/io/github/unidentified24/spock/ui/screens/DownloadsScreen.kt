@@ -20,6 +20,7 @@ import io.github.unidentified24.spock.data.api.Response
 import io.github.unidentified24.spock.data.entity.*
 import io.github.unidentified24.spock.data.preferences.*
 import io.github.unidentified24.spock.di.SongPlayer
+import io.github.unidentified24.spock.di.Downloads
 import io.github.unidentified24.spock.ui.components.*
 import io.github.unidentified24.spock.ui.navigation.*
 import io.github.unidentified24.spock.ui.theme.*
@@ -31,7 +32,61 @@ import kotlinx.coroutines.delay
 @Composable
 fun DownloadsScreen(navController:NavController) {
     val context=LocalContext.current;var songs by remember {mutableStateOf<List<SongsModel>>(emptyList())}
-    var pending by remember {mutableIntStateOf(0)}
-    LaunchedEffect(Unit) {while(true){withContext(Dispatchers.IO){getDownloadedSongs(context) to io.github.unidentified24.spock.di.Downloads.downloadingSnapshot().size}.let {songs=it.first;pending=it.second};delay(1500)}}
-    StudioCollection(navController,"Always with you.",if(pending>0) "$pending downloads in progress" else "Downloaded for offline listening",songs.firstOrNull()?.coverUri.orEmpty(),songs)
+    val vm:PlayerViewModel=hiltViewModel()
+    var pending by remember { mutableStateOf<List<Pair<SongsModel,Int>>>(emptyList()) }
+    var failed by remember { mutableStateOf<List<Pair<SongsModel,String>>>(emptyList()) }
+    var menu by remember { mutableStateOf<SongsModel?>(null) }
+    LaunchedEffect(Unit) {
+        while(true) {
+            val snapshot=withContext(Dispatchers.IO) {
+                Triple(getDownloadedSongs(context),Downloads.downloadingSnapshot(),Downloads.failedSnapshot())
+            }
+            songs=snapshot.first;pending=snapshot.second;failed=snapshot.third
+            delay(750)
+        }
+    }
+    menu?.let { song -> SongOptionsSheet(song,navController,context,onDismiss={menu=null}) }
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
+        item { StudioHeader(navController,"Always with you.",eyebrow="OFFLINE",back=true) }
+        item {
+            StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
+                Text("${songs.size} saved ${if(songs.size==1) "track" else "tracks"}",color=Color.White,style=MaterialTheme.typography.headlineSmall)
+                Text("Saved audio plays from this device, even without a connection. Keep Spock open while downloading.",color=TextMuted)
+                Button(onClick={playStudioTrack(vm,songs,0,context)},enabled=songs.isNotEmpty()) {Text("Play saved music")}
+            }
+        }
+        if(pending.isNotEmpty()) {
+            item {
+                StudioSection("Saving ${pending.size} tracks")
+                TextButton(onClick={Downloads.cancelAll()}) {Text("Cancel all downloads")}
+            }
+            items(pending,key={"pending:${it.first.url}"}) { (song,percent) ->
+                StudioCard(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth()) {
+                    Text(song.title,color=Color.White,style=MaterialTheme.typography.titleSmall)
+                    Text(if(percent==0) "Waiting for audio…" else "$percent% downloaded",color=TextMuted)
+                    if(percent==0) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(progress={percent/100f},modifier=Modifier.fillMaxWidth())
+                    TextButton(onClick={Downloads.cancel(song.url)}) {Text("Cancel")}
+                }
+            }
+        }
+        if(failed.isNotEmpty()) {
+            item { StudioSection("Needs another try") }
+            items(failed,key={"failed:${it.first.url}"}) { (song,error) ->
+                StudioCard(Modifier.padding(horizontal=20.dp,vertical=5.dp).fillMaxWidth()) {
+                    Text(song.title,color=Color.White,style=MaterialTheme.typography.titleSmall)
+                    Text(error,color=TextMuted,style=MaterialTheme.typography.bodySmall,maxLines=3)
+                    Row {
+                        TextButton(onClick={Downloads.downloadSong(song,context)}) {Text("Retry")}
+                        TextButton(onClick={Downloads.dismissFailure(song.url);failed=Downloads.failedSnapshot()}) {Text("Dismiss")}
+                    }
+                }
+            }
+        }
+        item { StudioSection("Ready offline") }
+        if(songs.isEmpty()) item {StudioEmpty("Your offline shelf is empty","Open a song’s options and choose Download. Add local files from Collection → Local music.")}
+        itemsIndexed(songs,key={i,s->"saved:${s.id}:$i"}) { i,song ->
+            StudioTrack(song,i,vm.currentSongId.value==song.id,{playStudioTrack(vm,songs,i,context)},{menu=song})
+        }
+    }
 }

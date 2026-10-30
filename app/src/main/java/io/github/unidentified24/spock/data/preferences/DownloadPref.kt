@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import io.github.unidentified24.spock.data.entity.SongsModel
 import org.json.JSONObject
+import io.github.unidentified24.spock.playback.OfflineFiles
 import java.io.File
 
 /**
@@ -65,20 +66,20 @@ fun removeDownload(context: Context, songId: String) {
 }
 
 fun isDownloaded(context: Context, songId: String): Boolean =
-    context.getSharedPreferences(PREF, Context.MODE_PRIVATE).contains(songId)
+    context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(songId,null)?.let(::parse)?.second?.let(OfflineFiles::available)==true
 
 fun getDownloadedSongs(context: Context): List<SongsModel> {
     val prefs = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-    return prefs.all.values.mapNotNull { (it as? String)?.let(::parse)?.first }
+    return prefs.all.values.mapNotNull { (it as? String)?.let(::parse) }.filter{OfflineFiles.available(it.second)}.map{it.first}
 }
 
 /** Local file path for a track query (SongsModel.url), if downloaded and present on disk. */
 fun downloadedPathForQuery(context: Context, query: String): String? {
     val index = pathByQuery ?: getDownloadedEntries(context)
         .filter { it.second.isNotBlank() }
-        .associate { (song, path) -> song.url to path }
+        .associate { (song, path) -> OfflineFiles.key(song.url) to path }
         .also { pathByQuery = it }
-    return index[query]?.takeIf { File(it).exists() }
+    return index[OfflineFiles.key(query)]?.takeIf(OfflineFiles::available)
 }
 
 /** Every downloaded track paired with its on-disk file path. */

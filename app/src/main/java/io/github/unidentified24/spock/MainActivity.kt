@@ -60,9 +60,11 @@ class MainActivity : ComponentActivity() {
 
         // Ask for notification permission (Android 13+) so the media notification shows.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !getSharedPreferences("onboarding",0).getBoolean("notificationsAsked",false) &&
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
+            getSharedPreferences("onboarding",0).edit().putBoolean("notificationsAsked",true).apply()
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
 

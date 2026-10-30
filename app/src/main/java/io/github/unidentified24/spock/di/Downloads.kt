@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import io.github.unidentified24.spock.playback.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -40,11 +42,21 @@ object Downloads {
 
     // Last download failure reason, surfaced to the user as a Toast for diagnosis.
     @Volatile var lastDownloadError: String? = null
+    private val failures=java.util.concurrent.ConcurrentHashMap<String,Pair<io.github.unidentified24.spock.data.entity.SongsModel,String>>()
+    fun failedSnapshot()=failures.values.toList()
+    fun dismissFailure(query:String){failures.remove(query)}
+    private val errors=java.util.concurrent.ConcurrentHashMap<String,String>()
+    private fun recordError(query:String,message:String){errors[query]=message;lastDownloadError=message}
+    private suspend fun <T> attempt(block:suspend ()->T):T? = try{block()}catch(cancelled:CancellationException){throw cancelled}catch(_:Exception){null}
+    private val owners=java.util.concurrent.ConcurrentHashMap<String,LookupConnections>()
+    fun cancel(query:String){owners[query]?.close();jobs[query]?.cancel()}
+
 
     // googlevideo stream URLs 403 without a browser User-Agent and need redirects
     // followed (http↔https) — ExoPlayer does both, so a raw URLConnection must too.
     private fun openDownloadConn(url: String): java.net.HttpURLConnection =
         (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+            LookupConnections.track(this)
             connectTimeout = 15000
             readTimeout = 30000
             instanceFollowRedirects = true
@@ -53,6 +65,10 @@ object Downloads {
                 "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
             )
+            setRequestProperty("Accept-Encoding","identity")
+            val host=java.net.URI(url).host.orEmpty()
+            if(host=="googlevideo.com" || host.endsWith(".googlevideo.com"))
+                com.metrolist.innertube.models.YouTubeClient.forStreamUrl(url).mediaHeaders().forEach{(name,value)->setRequestProperty(name,value)}
         }
 
     /**
@@ -64,73 +80,11 @@ object Downloads {
      * retried chunk resumes from the current byte position. Returns true iff the whole
      * file was written. Falls back gracefully if the server ignores Range (HTTP 200).
      */
-    private fun httpDownloadRanged(url: String, tmpFile: java.io.File, query: String): Boolean {
-        val chunk = 8L * 1024 * 1024 // 8 MB
-        var total = -1L
-        var position = 0L
-        downloadProgress[query] = 0
-        try {
-            java.io.BufferedOutputStream(tmpFile.outputStream()).use { output ->
-                outer@ while (true) {
-                    val end = if (total > 0) minOf(position + chunk - 1, total - 1) else position + chunk - 1
-                    var attempt = 0
-                    var fullBody = false
-                    while (true) {
-                        attempt++
-                        val conn = openDownloadConn(url)
-                        conn.setRequestProperty("Range", "bytes=$position-$end")
-                        try {
-                            val code = conn.responseCode
-                            if (code !in 200..299) {
-                                lastDownloadError = "Stream returned HTTP $code"
-                                return false
-                            }
-                            if (total < 0) {
-                                total = conn.getHeaderField("Content-Range")
-                                    ?.substringAfter('/')?.toLongOrNull()
-                                    ?: conn.contentLengthLong
-                            }
-                            fullBody = code == 200 // server ignored Range → whole file in one body
-                            conn.inputStream.use { input ->
-                                val buf = ByteArray(64 * 1024)
-                                while (true) {
-                                    val r = input.read(buf)
-                                    if (r < 0) break
-                                    output.write(buf, 0, r)
-                                    position += r
-                                    if (total > 0) {
-                                        val pct = ((position * 100) / total).toInt().coerceIn(0, 100)
-                                        if (downloadProgress[query] != pct) {
-                                            downloadProgress[query] = pct
-                                            onDownloadsChanged?.invoke()
-                                        }
-                                    }
-                                }
-                            }
-                            break // this chunk completed
-                        } catch (e: Exception) {
-                            Log.w(TAG, "chunk @${position} failed (attempt $attempt): ${e.message}")
-                            if (attempt >= 4) {
-                                lastDownloadError = e.message ?: "Connection reset"
-                                return false
-                            }
-                            // retry the remainder of this chunk from the current position
-                        } finally {
-                            conn.disconnect()
-                        }
-                    }
-                    if (fullBody) { total = position; break@outer }
-                    if (total in 1..position) break@outer
-                    if (total < 0) break@outer // couldn't determine size; assume done
-                }
-            }
-            downloadProgress[query] = 100
-            return total <= 0 || position >= total
-        } catch (e: Exception) {
-            lastDownloadError = e.message ?: "Download error"
-            return false
-        }
-    }
+    private fun httpDownloadRanged(url:String,tmpFile:java.io.File,query:String):Boolean = try {
+        RangedTransfer.copy(url,tmpFile,::openDownloadConn,{pct->downloadProgress[query]=pct;onDownloadsChanged?.invoke()},LookupConnections::checkActive)
+        true
+    } catch(cancelled:CancellationException){throw cancelled}
+      catch(error:Exception){recordError(query,error.message ?: "Download failed");false}
 
     /** Download every track in a list (album/playlist). Each song dedupes and
      *  reports its own progress via the existing per-song machinery. */
@@ -142,10 +96,10 @@ object Downloads {
 
     /**
      * Stop every pending download. Tracks still waiting for a slot stop at once; the
-     * few already transferring finish (blocking reads don't see cancellation).
+     * active transfers have their owned connections closed as well.
      */
     fun cancelAll() {
-        jobs.values.forEach { it.cancel() }
+        owners.values.forEach{it.close()};jobs.values.forEach { it.cancel() }
         onDownloadsChanged?.invoke()
     }
 
@@ -184,39 +138,61 @@ object Downloads {
         downloadProgress[query] = 0
         onDownloadsChanged?.invoke()
         lastDownloadError = null
-        jobs[query] = scope.launch {
-            val ok = runCatching { downloadSlots.withPermit { downloadToFile(song, appContext) } }
-                .onFailure { if (it !is kotlinx.coroutines.CancellationException) lastDownloadError = it.message ?: "Unexpected error" }
-                .getOrDefault(false)
-            jobs.remove(query)
-            downloading.remove(query)
-            downloadProgress.remove(query)
-            downloadingSongs.remove(query)
-            withContext(Dispatchers.Main) {
-                if (!ok) {
-                    android.widget.Toast.makeText(
-                        appContext,
-                        "Download failed: ${lastDownloadError ?: "unknown reason"}",
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
-                }
-                onDownloadsChanged?.invoke()
-                onComplete(ok)
+        failures.remove(query);errors.remove(query)
+        val owner=LookupConnections();owners[query]=owner
+        val job=scope.launch(start=CoroutineStart.LAZY) {
+            var ok=false;var cancelled=false
+            try {ok=withContext(owner){downloadSlots.withPermit{downloadToFile(song,appContext)}}}
+            catch(error:CancellationException){cancelled=true;throw error}
+            catch(error:Exception){recordError(query,error.message ?: "Unexpected download failure")}
+            finally {
+                owner.close();owners.remove(query);jobs.remove(query);downloading.remove(query);downloadProgress.remove(query);downloadingSongs.remove(query)
+                if(!ok && !cancelled)failures[query]=song to (errors[query] ?: "No downloadable audio source responded")
+                errors.remove(query)
+                val dir=java.io.File(appContext.filesDir,"downloads")
+                listOf("part","flacpart","dzpart").forEach{java.io.File(dir,"${song.id}.$it").delete()}
+                withContext(NonCancellable+Dispatchers.Main){onDownloadsChanged?.invoke();onComplete(ok)}
             }
         }
+        jobs[query]=job;job.start()
+    }
+
+    private fun commitFile(context:Context,song:io.github.unidentified24.spock.data.entity.SongsModel,tmp:java.io.File,out:java.io.File):Boolean {
+        if(!OfflineFiles.audioHeader(tmp)){recordError(song.url,"Downloaded response was not a supported audio file");tmp.delete();return false}
+        val reader=android.media.MediaMetadataRetriever()
+        try {
+            reader.setDataSource(tmp.path)
+            val duration=reader.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
+            if(duration>0 && song.durationMs>0 && duration<song.durationMs*.70){recordError(song.url,"Source returned only a preview");tmp.delete();return false}
+        } catch(_:Exception) { /* Some valid containers cannot be read by Android's metadata reader. */ }
+          finally {runCatching{reader.release()}}
+        if(!tmp.renameTo(out)){recordError(song.url,"Couldn't save audio");tmp.delete();return false}
+        io.github.unidentified24.spock.data.preferences.addDownload(context,song,out.path)
+        return true
     }
 
     private suspend fun downloadToFile(
         song: io.github.unidentified24.spock.data.entity.SongsModel,
         appContext: Context,
     ): Boolean {
+        if(song.url.startsWith("content://") || song.url.startsWith("file://")) {
+            val dir=java.io.File(appContext.filesDir,"downloads").apply{mkdirs()}
+            val tmp=java.io.File(dir,"${song.id}.part")
+            appContext.contentResolver.openInputStream(android.net.Uri.parse(song.url))?.use { input ->
+                tmp.outputStream().use { output ->
+                    val buffer=ByteArray(65536)
+                    while(true){LookupConnections.checkActive();val n=input.read(buffer);if(n<0)break;output.write(buffer,0,n)}
+                }
+            } ?: return false
+            return commitFile(appContext,song,tmp,java.io.File(dir,"${song.id}.audio"))
+        }
         val dlQuality = io.github.unidentified24.spock.data.preferences.getDownloadQuality(appContext)
         // Deezer: use immediately if it yields FLAC (HiFi). If it only yields MP3
         // (free account), HOLD it and try the real FLAC sources first — otherwise a
         // free Deezer MP3 would pre-empt lossless.
         var heldDeezer: io.github.unidentified24.spock.deezer.DeezerSource.Resolved? = null
-        if (SongPlayer.deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerEnabled(appContext)) {
-            val raw = kotlinx.coroutines.withTimeoutOrNull(30_000) { resolveDeezerRaw(song, appContext) }
+        if (SongPlayer.deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) {
+            val raw = attempt { withTimeoutOrNull(15_000) { resolveDeezerRaw(song, appContext) } }
             if (raw != null) {
                 if (raw.isFlac) {
                     if (downloadDeezerRaw(song, appContext, raw)) return true
@@ -226,8 +202,8 @@ object Downloads {
             }
         }
         // Lossless FLAC: SpotiFLAC gated (if verified) + Tidal/community. Saves .flac.
-        if (SongPlayer.losslessStreaming && song.spotifyTrackId.isNotBlank()) {
-            val r = kotlinx.coroutines.withTimeoutOrNull(45_000) {
+        if (dlQuality.lossless && SongPlayer.losslessStreaming && song.spotifyTrackId.isNotBlank()) {
+            val r = attempt { withTimeoutOrNull(25_000) {
                 io.github.unidentified24.spock.lossless.LosslessSource.resolve(
                     appContext, song.spotifyTrackId,
                     io.github.unidentified24.spock.lossless.LosslessSource.TrackInfo(
@@ -236,12 +212,12 @@ object Downloads {
                     preferHiRes = SongPlayer.losslessHiRes,
                 )
             }
+            }
             if (r is io.github.unidentified24.spock.lossless.LosslessSource.Result.Success) {
                 val dir = java.io.File(appContext.filesDir, "downloads").apply { mkdirs() }
                 val outFile = java.io.File(dir, "${song.id}.flac")
                 val tmpFile = java.io.File(dir, "${song.id}.flacpart")
-                if (httpDownloadRanged(r.track.url, tmpFile, song.url) && tmpFile.renameTo(outFile)) {
-                    io.github.unidentified24.spock.data.preferences.addDownload(appContext, song, outFile.absolutePath)
+                if (httpDownloadRanged(r.track.url,tmpFile,song.url) && commitFile(appContext,song,tmpFile,outFile)) {
                     Log.d(TAG, "lossless downloaded (${r.track.provider} ${r.track.quality}-bit): ${song.title}")
                     return true
                 }
@@ -254,34 +230,28 @@ object Downloads {
             dlQuality.audioQuality == com.metrolist.music.constants.AudioQuality.HIGH
         if (!ytFirst) heldDeezer?.let { if (downloadDeezerRaw(song, appContext, it)) return true }
         if (!SongPlayer.youtubeEnabled) {
-            lastDownloadError = "Track not available for download"
+            recordError(song.url,"Track not available for download")
             return false
         }
 
         val query = song.url
         // Resolve a fresh network stream URL (bypass any local-file short-circuit),
         // walking the ranked video candidates like playback does.
-        val playback = SongPlayer.resolveYtPlayback(query, dlQuality.audioQuality, appContext) ?: run {
+        val playback = attempt { SongPlayer.resolveYtPlayback(query, dlQuality.audioQuality, appContext) } ?: run {
             if (ytFirst && downloadDeezerRaw(song, appContext, heldDeezer!!)) return true
-            lastDownloadError = "Couldn't resolve a stream"
+            recordError(query,"Couldn't resolve a stream")
             return false
         }
 
         val dir = java.io.File(appContext.filesDir, "downloads").apply { mkdirs() }
-        val outFile = java.io.File(dir, "${song.id}.m4a")
+        val outFile = java.io.File(dir, "${song.id}."+if(playback.format.mimeType.contains("webm"))"webm" else "m4a")
         val tmpFile = java.io.File(dir, "${song.id}.part")
 
         if (!httpDownloadRanged(playback.streamUrl, tmpFile, song.url)) {
             runCatching { tmpFile.delete() }
             return false
         }
-        if (!tmpFile.renameTo(outFile)) {
-            lastDownloadError = "Couldn't save file"
-            runCatching { tmpFile.delete() }
-            return false
-        }
-        io.github.unidentified24.spock.data.preferences.addDownload(appContext, song, outFile.absolutePath)
-        return true
+        return commitFile(appContext,song,tmpFile,outFile)
     }
 
     /**
@@ -300,6 +270,7 @@ object Downloads {
             isrc = null,
             searchQuery = listOf(song.title, song.singer).filter { it.isNotBlank() }.joinToString(" "),
             expectedDurationSec = if (song.durationMs > 0) song.durationMs / 1000 else 0,
+            qualityCap = io.github.unidentified24.spock.data.preferences.getDownloadQuality(appContext).let { if(it.lossless)9 else if(it.audioQuality==com.metrolist.music.constants.AudioQuality.LOW)1 else 3 },
         )
 
     private fun downloadDeezerRaw(
@@ -315,14 +286,7 @@ object Downloads {
             runCatching { tmpFile.delete() }
             return false
         }
-        if (!tmpFile.renameTo(outFile)) {
-            lastDownloadError = "Couldn't save file"
-            runCatching { tmpFile.delete() }
-            return false
-        }
-        io.github.unidentified24.spock.data.preferences.addDownload(appContext, song, outFile.absolutePath)
-        Log.d(TAG, "Deezer downloaded (${raw.qualityLabel}): ${song.title}")
-        return true
+        return commitFile(appContext,song,tmpFile,outFile)
     }
 
     /**
@@ -342,7 +306,7 @@ object Downloads {
         return try {
             val code = conn.responseCode
             if (code !in 200..299) {
-                lastDownloadError = "Deezer CDN HTTP $code"
+                recordError(query,"Deezer CDN HTTP $code")
                 return false
             }
             val total = conn.contentLengthLong
@@ -358,7 +322,9 @@ object Downloads {
                     val buf = ByteArray(2048)
                     var counter = 0
                     var position = 0L
+                    var received=0L
                     while (true) {
+                        LookupConnections.checkActive()
                         var read = 0
                         while (read < 2048) {
                             val r = input.read(buf, read, 2048 - read)
@@ -374,6 +340,7 @@ object Downloads {
                         output.write(out, 0, read)
                         counter++
                         position += read
+                        received += read
                         if (total > 0) {
                             val pct = ((position * 100) / total).toInt().coerceIn(0, 100)
                             if (downloadProgress[query] != pct) {
@@ -383,12 +350,14 @@ object Downloads {
                         }
                         if (read < 2048) break // final partial chunk
                     }
+                    check(received>0 && (total<0 || received==total)){"Incomplete Deezer download"}
                 }
             }
             downloadProgress[query] = 100
             true
+        } catch (cancelled:CancellationException) { throw cancelled
         } catch (e: Exception) {
-            lastDownloadError = e.message ?: "Deezer download error"
+            recordError(query,e.message ?: "Deezer download error")
             false
         } finally {
             runCatching { conn.disconnect() }

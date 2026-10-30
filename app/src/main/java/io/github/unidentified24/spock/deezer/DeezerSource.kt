@@ -68,6 +68,7 @@ object DeezerSource {
         isrc: String? = null,
         searchQuery: String? = null,
         expectedDurationSec: Int = 0,
+        qualityCap: Int = 9,
     ): Resolved? = withContext(Dispatchers.IO) {
         val arl = getDeezerArl(context) ?: return@withContext null
         DeezerSession.setArl(arl)
@@ -89,7 +90,7 @@ object DeezerSource {
             DeezerSession.QUALITY_MP3_320 -> listOf(3, 1)
             else -> listOf(1)
         }
-        for (q in candidates) {
+        for (q in candidates.filter { it <= qualityCap }) {
             val (url, encrypted) = DeezerSession.getTrackUrl(tokens, q)
             if (url != null) {
                 // Persist tier for the settings screen (best-effort).

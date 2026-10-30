@@ -483,6 +483,14 @@ object SongPlayer {
         forPlayback: Boolean = false,
         allowYouTube: Boolean = true,
     ): String? {
+        // Offline: if this track was downloaded, play the local file instead of the network.
+        io.github.unidentified24.spock.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
+            if (forPlayback) {
+                currentSource = "Downloaded"
+                currentQuality = path.substringAfterLast('.', "").uppercase()
+            }
+            return android.net.Uri.fromFile(java.io.File(path)).toString()
+        }
         // Imported local files: the play query IS the file's content:// / file:// URI.
         // ExoPlayer plays it directly (FLAC/MP3/WAV/… via its built-in extractors).
         if (song.startsWith("content://") || song.startsWith("file://")) {
@@ -515,14 +523,6 @@ object SongPlayer {
                 }
                 else -> null
             }
-        }
-        // Offline: if this track was downloaded, play the local file instead of the network.
-        io.github.unidentified24.spock.data.preferences.downloadedPathForQuery(appContext, song)?.let { path ->
-            if (forPlayback) {
-                currentSource = "Downloaded"
-                currentQuality = path.substringAfterLast('.', "").uppercase()
-            }
-            return android.net.Uri.fromFile(java.io.File(path)).toString()
         }
         if ((streamExpiry[song] ?: 0L) <= System.currentTimeMillis()) invalidateResolvedStream(song)
         streamCache[song]?.let { cachedUrl ->
