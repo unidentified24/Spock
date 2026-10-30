@@ -281,7 +281,7 @@ object SongPlayer {
                 val ready=kotlinx.coroutines.withTimeoutOrNull(5000){
                     while(p.playbackState!=Player.STATE_READY && p.playerError==null && p.playbackState!=Player.STATE_ENDED)delay(25)
                     val expected=durationRegistry[song] ?: 0
-                    p.playbackState==Player.STATE_READY && p.playerError==null && (expected<=0 || p.duration<=0 || p.duration>=expected*.70)
+                    p.playbackState==Player.STATE_READY && p.playerError==null && RecordingDuration.matches(expected.toLong(),p.duration)
                 }==true
                 currentCoroutineContext().ensureActive()
                 if(ready){keep=true;result}else null
@@ -308,6 +308,7 @@ object SongPlayer {
         val filter:io.github.unidentified24.spock.audio.CrossfadeFilterAudioProcessor,val createdAt:Long,
         val buffer:ReadAheadLoadControl?=null,
     ) {
+        @Volatile var queueOwned=false
         private val discarded=java.util.concurrent.atomic.AtomicBoolean(false)
         fun discard(){if(discarded.compareAndSet(false,true))player.release()}
     }
@@ -388,7 +389,7 @@ object SongPlayer {
             if(generation!=requestGeneration || !nextPlan.accepts(token,song.url))return@withContext
             val previous=preparedNative
             if(previous!=null && preparedUsable(previous,song.url) && streamRank(previous.stream)>=streamRank(candidate) && android.os.SystemClock.elapsedRealtime()-previous.createdAt<30000)return@withContext
-            previous?.discard();preparedNative=warm;kept=true
+            previous?.discard();warm.queueOwned=true;preparedNative=warm;kept=true
             PlaybackDiagnostics.event("Next track buffered: ${candidate.source}")
         }}finally{if(!kept)withContext(kotlinx.coroutines.NonCancellable+Dispatchers.Main){owned?.discard()}}
     }
@@ -497,7 +498,7 @@ object SongPlayer {
                     resolveNativePrepared(song,appContext)?.let{native=it;StartChoice(it)}
                 }
                 if(!local)choices+=StreamLookup {if(tryWebStart(song,appContext,generation))StartChoice() else null}
-                val winner=firstPlayable(choices,timeoutMs=25000)
+                val winner=firstPlayable(choices,timeoutMs=4500)
                 if(generation!=requestGeneration || !wantsPlayback)return@launch
                 if(winner?.native!=null)promotePrepared(winner.native,song,generation)
                 else if(winner!=null)PlaybackDiagnostics.event("Spotify won audio start after ${android.os.SystemClock.elapsedRealtime()-requestStartedAt} ms")
@@ -611,14 +612,18 @@ object SongPlayer {
             ).also { mediaCache = it }
         }
 
+    private val mediaHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder().connectTimeout(3,java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(4,java.util.concurrent.TimeUnit.SECONDS).writeTimeout(4,java.util.concurrent.TimeUnit.SECONDS)
+            .connectionPool(okhttp3.ConnectionPool(10,5,java.util.concurrent.TimeUnit.MINUTES))
+            .retryOnConnectionFailure(false).build()
+    }
     private fun cacheDataSourceFactory(context: Context): androidx.media3.datasource.cache.CacheDataSource.Factory {
-        val http = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+        val http = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(mediaHttpClient)
             .setUserAgent(
                 "Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
             )
-            .setConnectTimeoutMs(5000).setReadTimeoutMs(8000)
-            .setAllowCrossProtocolRedirects(true)
         val baseUpstream = androidx.media3.datasource.DefaultDataSource.Factory(context, http)
         val resolvedUpstream = androidx.media3.datasource.ResolvingDataSource.Factory(baseUpstream) { dataSpec ->
             val url = dataSpec.uri.toString()
@@ -758,21 +763,33 @@ object SongPlayer {
         val lookups = mutableListOf<StreamLookup<ResolvedStream>>()
         val pool=java.util.Collections.synchronizedList(mutableListOf<PreparedNative>())
         var kept:PreparedNative?=null
-        fun lookup(resolve: suspend () -> ResolvedStream?) {
+        fun lookup(name:String,resolve: suspend () -> ResolvedStream?) {
             val connections = LookupConnections()
             lookups += StreamLookup(cancel = { connections.close() }) {
                 withContext(connections) {
                     val lookupStarted=android.os.SystemClock.elapsedRealtime()
-                    val result=resolve() ?: return@withContext null
-                    if(result.url.isBlank() || result.url in rejectedStreams)return@withContext null
-                    val warm=prepareStream(result,song,appContext,onCreated={pool.add(it)}) ?: return@withContext null
-                    PlaybackDiagnostics.event("${result.source}: ready in ${android.os.SystemClock.elapsedRealtime()-lookupStarted} ms")
-                    result.copy(warm=warm)
+                    PlaybackDiagnostics.event("$name: resolving")
+                    try {
+                        repeat(if(name=="SoundCloud")2 else 1){
+                            val result=resolve()
+                            if(result==null){PlaybackDiagnostics.event("$name: no accessible full-stream candidate");return@withContext null}
+                            if(result.url.isBlank() || result.url in rejectedStreams)return@withContext null
+                            val warm=result.warm ?: prepareStream(result,song,appContext,onCreated={pool.add(it)})
+                            if(warm!=null){
+                                PlaybackDiagnostics.event("${result.source}: ready in ${android.os.SystemClock.elapsedRealtime()-lookupStarted} ms")
+                                return@withContext result.copy(warm=warm)
+                            }
+                            PlaybackDiagnostics.event("$name: stream failed preparation or returned a preview")
+                            if(name=="SoundCloud")io.github.unidentified24.spock.soundcloud.SoundCloudSource.reject(song)
+                        }
+                        null
+                    }catch(c:kotlinx.coroutines.CancellationException){throw c}
+                     catch(error:Exception){PlaybackDiagnostics.event("$name: ${error.javaClass.simpleName}");null}
                 }
             }
         }
         if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) {
-            lookup {
+            lookup("Deezer") {
                 val result = io.github.unidentified24.spock.deezer.DeezerSource.resolve(
                     appContext, spotifyId,
                     isrc = metadataRegistry[song]?.isrc?.takeIf { it.isNotBlank() },
@@ -786,7 +803,7 @@ object SongPlayer {
             }
         }
         if (losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(appContext) && quality.lossless && spotifyId != null) {
-            lookup {
+            lookup("FLAC") {
                 val result = io.github.unidentified24.spock.lossless.LosslessSource.resolve(
                     appContext, spotifyId, losslessTrackInfo(song), losslessHiRes)
                 (result as? io.github.unidentified24.spock.lossless.LosslessSource.Result.Success)?.let {
@@ -794,7 +811,7 @@ object SongPlayer {
                 }
             }
         }
-        if(io.github.unidentified24.spock.data.preferences.isSoundCloudEnabled(appContext))lookup {
+        if(io.github.unidentified24.spock.data.preferences.isSoundCloudEnabled(appContext))lookup("SoundCloud") {
             val meta=metadataRegistry[song] ?: return@lookup null
             kotlinx.coroutines.withTimeoutOrNull(10000){
                 io.github.unidentified24.spock.soundcloud.SoundCloudSource.resolve(song,meta.title,meta.artist,(durationRegistry[song] ?: 0)/1000)?.let{
@@ -803,10 +820,13 @@ object SongPlayer {
             }
         }
         if (youtubeEnabled && allowYouTube && io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(appContext)) {
-            lookup {
-                resolveYtPlayback(song, quality.audioQuality, appContext)?.let {
-                    ResolvedStream(it.streamUrl, "YouTube", ytQualityLabel(it), (it.streamExpiresInSeconds-30).coerceIn(0,1800))
-                }
+            lookup("YouTube") {
+                val buffered=java.util.concurrent.ConcurrentHashMap<String,PreparedNative>()
+                resolveYtPlayback(song, quality.audioQuality, appContext,accept={playback->
+                    val candidate=ResolvedStream(playback.streamUrl,"YouTube",ytQualityLabel(playback),(playback.streamExpiresInSeconds-30).coerceIn(0,1800))
+                    val ready=prepareStream(candidate,song,appContext,onCreated={pool.add(it)})
+                    if(ready==null)false else {buffered[playback.streamUrl]=ready;true}
+                })?.let{playback->buffered[playback.streamUrl]?.let{it.stream.copy(warm=it)}}
             }
         }
         try {
@@ -832,7 +852,8 @@ object SongPlayer {
         qualityCache[song] = winner.quality
         return winner.url
         }finally{withContext(kotlinx.coroutines.NonCancellable+Dispatchers.Main){
-            pool.toList().filter{it!==kept && it!==preparedNative}.forEach{it.discard()}
+            // The queue may already have handed this player to a new tap; lookup cleanup must not release it.
+            pool.toList().filter{!it.queueOwned && it!==kept && it!==preparedNative}.forEach{it.discard()}
         }}
     }
 
@@ -1136,7 +1157,8 @@ object SongPlayer {
                 val words=normalizedForMatch(text).split(" ").filter {it.length>2}
                 words.isNotEmpty() && words.count {combined.contains(it)} >= (words.size*.75).toInt().coerceAtLeast(1)
             }.map{it.id}.take(3)
-            return hits.map {ytmusicTransferScore(it,meta,durationRegistry[query] ?: 0)}
+            val expected=(durationRegistry[query] ?: 0).toLong()
+            return hits.filter{item->item.duration?.let{RecordingDuration.matches(expected,it.toLong()*1000)} ?: true}.map {ytmusicTransferScore(it,meta,durationRegistry[query] ?: 0)}
                 .filter {it.isAcceptableMatch()}
                 .filter {MatchPolicy.editionAllowed(explicit,it.item.explicit,it.item.title,it.titleScore,it.durationScore)}
                 .sortedWith(compareByDescending<CandidateScore>{explicit==null || it.item.explicit==explicit}.thenByDescending{it.score})
@@ -1167,17 +1189,19 @@ object SongPlayer {
         query: String,
         audioQuality: com.metrolist.music.constants.AudioQuality,
         appContext: Context,
+        accept:(suspend (YTPlayerUtils.PlaybackData)->Boolean)?=null,
     ): YTPlayerUtils.PlaybackData? =
         // The PoToken/solver WebViews wait on JS callbacks with no deadline; a hung
         // WebView left playback at 0:00 forever (#95, #79) instead of failing over.
         kotlinx.coroutines.withTimeoutOrNull(45_000L) {
-            resolveYtPlaybackUnbounded(query, audioQuality, appContext)
+            resolveYtPlaybackUnbounded(query, audioQuality, appContext,accept)
         } ?: null.also { Log.w(TAG, "YouTube resolve failed or timed out for: ${searchTextForPlayback(query)}") }
 
     private suspend fun resolveYtPlaybackUnbounded(
         query: String,
         audioQuality: com.metrolist.music.constants.AudioQuality,
         appContext: Context,
+        accept:(suspend (YTPlayerUtils.PlaybackData)->Boolean)?=null,
     ): YTPlayerUtils.PlaybackData? {
         val connectivityManager =
             appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -1189,7 +1213,8 @@ object SongPlayer {
                 val connections=LookupConnections()
                 StreamLookup(cancel={connections.close()}) {
                     withContext(connections) {kotlinx.coroutines.withTimeoutOrNull(14000) {
-                        YTPlayerUtils.playerResponseForPlayback(videoId=videoId,audioQuality=audioQuality,connectivityManager=connectivityManager).getOrNull()
+                        val playback=YTPlayerUtils.playerResponseForPlayback(videoId=videoId,audioQuality=audioQuality,connectivityManager=connectivityManager).getOrNull()
+                        if(playback!=null && accept?.invoke(playback)!=false)playback else null
                     }}
                 }
             },timeoutMs=15000)

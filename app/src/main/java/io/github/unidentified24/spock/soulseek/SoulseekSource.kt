@@ -1,4 +1,5 @@
 package io.github.unidentified24.spock.soulseek
+import io.github.unidentified24.spock.playback.readPrefix
 
 import android.content.Context
 import android.util.Log
@@ -107,7 +108,7 @@ object SoulseekSource {
 
     /** A real FLAC of the expected length, not a sample or a wrong upload. */
     private fun isRightTrack(file: File, durationSec: Int): Boolean {
-        val seconds = runCatching { file.inputStream().use { flacLengthSec(it.readNBytes(64 * 1024)) } }.getOrNull()
+        val seconds = runCatching { file.inputStream().use { flacLengthSec(it.readPrefix(64 * 1024)) } }.getOrNull()
         val ok = seconds != null && (durationSec <= 0 || kotlin.math.abs(seconds - durationSec) <= 5)
         if (!ok) Log.d(TAG, "${file.name}: length ${seconds ?: "unreadable"}s, expected ${durationSec}s")
         return ok

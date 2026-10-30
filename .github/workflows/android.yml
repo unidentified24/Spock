@@ -18,6 +18,7 @@ jobs:
         with:
           node-version: '20'
       - run: node scripts/test-web-playback.cjs
+      - run: node scripts/test-potoken-bridge.cjs
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-34 build-tools;35.0.0'

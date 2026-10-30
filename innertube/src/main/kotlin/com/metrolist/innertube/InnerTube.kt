@@ -223,8 +223,9 @@ class InnerTube {
         signatureTimestamp: Int?,
         poToken: String? = null,
         authenticated: Boolean = false,
-    ) = withRetry {
+    ) = withRetry(maxAttempts=1) {
         httpClient.post(client.playerApiUrl) {
+            timeout {requestTimeoutMillis=2200;connectTimeoutMillis=1500;socketTimeoutMillis=2000}
             // BitChord's critical distinction: native clients are anonymous.
             // Cookies belong only on a browser-shaped authenticated fallback.
             ytClient(client, setLogin = authenticated)

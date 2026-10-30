@@ -81,6 +81,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     val context=LocalContext.current
     var yt by remember {mutableStateOf(isYouTubeSourceEnabled(context))}
     var flac by remember {mutableStateOf(isFlacSourceEnabled(context))}
+    var wifiFlac by remember {mutableStateOf(isFlacWifiRequested(context))}
     var dz by remember {mutableStateOf(isDeezerRaceEnabled(context))}
     var sc by remember {mutableStateOf(isSoundCloudEnabled(context))}
     var instant by remember {mutableStateOf(isWebPlaybackEnabled(context))}
@@ -105,7 +106,9 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("FLAC","Participates when your sound quality is Lossless",flac){flac=it;setFlacSourceEnabled(context,it)}
         Text("Experimental community services can be unavailable. YouTube and Deezer keep competing.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
-        TextButton(onClick={setWifiQuality(context,StreamQuality.LOSSLESS);setFlacSourceEnabled(context,true);flac=true}) {Text("Include FLAC over Wi-Fi")}
+        TextButton(onClick={enableFlacOverWifi(context);flac=true;wifiFlac=true}) {Text(if(wifiFlac&&flac)"FLAC included over Wi-Fi ✓" else "Include FLAC over Wi-Fi")}
+        if(wifiFlac&&flac)Text("Enabled on Wi-Fi, including metered Wi-Fi. Mobile data keeps its own quality setting.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
+        Text(io.github.unidentified24.spock.lossless.LosslessRegistry.lastPublicResult,color=TextMuted,style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={nav.navigate(Routes.SpotiflacVerify.route)}){Text(if(hasSpotiflacSession(context))"Refresh verification" else "Set up FLAC verification")}
     }
     StudioCard(Modifier.fillMaxWidth()) {

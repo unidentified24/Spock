@@ -17,6 +17,7 @@ import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_VR_1_65_10
 import com.metrolist.innertube.models.YouTubeClient.Companion.ANDROID_MUSIC
 import com.metrolist.innertube.models.YouTubeClient.Companion.IOS
 import com.metrolist.innertube.models.YouTubeClient.Companion.IOS_RECENT
+import com.metrolist.innertube.models.YouTubeClient.Companion.IOS_DIRECT
 import com.metrolist.innertube.models.YouTubeClient.Companion.MOBILE
 import com.metrolist.innertube.models.YouTubeClient.Companion.TVHTML5
 import com.metrolist.innertube.models.YouTubeClient.Companion.WEB_REMIX
@@ -30,6 +31,7 @@ import com.metrolist.music.utils.potoken.PoTokenGenerator
 import com.metrolist.music.utils.potoken.PoTokenResult
 import com.metrolist.music.utils.sabr.EjsNTransformSolver
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.async
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
@@ -47,17 +49,29 @@ object YTPlayerUtils {
 
     private val poTokenGenerator = PoTokenGenerator()
 
+    /** Warm shared browser helpers once, outside a song's foreground startup budget. */
+    suspend fun prewarm() = kotlinx.coroutines.coroutineScope {
+        kotlinx.coroutines.withTimeoutOrNull(7000){
+            val visitor=YouTube.visitorData ?: YouTube.visitorData().getOrNull()?.also{YouTube.visitorData=it}
+            val cipher=async { runCatching{CipherDeobfuscator.prewarm()} }
+            if(visitor!=null)runCatching{poTokenGenerator.getWebClientPoToken("00000000000",visitor)}
+            cipher.await()
+        }
+        Unit
+    }
+
     // BitChord's fast path: current native YouTube Music returns direct URLs
     // without cookies, PoTokens, player JavaScript, or signature deciphering.
-    private val MAIN_CLIENT: YouTubeClient = ANDROID_MUSIC
+    private val MAIN_CLIENT: YouTubeClient = IOS_DIRECT
 
     private val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
+        WEB_REMIX,
+        ANDROID_MUSIC,
         ANDROID_VR_1_65_10,
         IOS_RECENT,
         ANDROID_VR_1_43_32,
         IOS,
         MOBILE,
-        WEB_REMIX,
         TVHTML5,
     )
 
@@ -100,7 +114,11 @@ object YTPlayerUtils {
         Timber.tag(TAG).d("Authentication status: ${if (isLoggedIn) "LOGGED_IN" else "ANONYMOUS"}")
 
         // Get signature timestamp (same as before for normal content)
-        val signatureTimestamp by lazy { getSignatureTimestampOrNull(videoId) }
+        var cachedTimestamp:SignatureTimestampResult?=null
+        suspend fun timestamp():SignatureTimestampResult {
+            cachedTimestamp?.let{return it}
+            return SignatureTimestampResult(kotlinx.coroutines.withTimeoutOrNull(1800){CipherDeobfuscator.signatureTimestamp()},false).also{cachedTimestamp=it}
+        }
 
 
         // Generate PoToken only for a web client. The native fast path does not
@@ -137,7 +155,7 @@ object YTPlayerUtils {
             videoId,
             playlistId,
             MAIN_CLIENT,
-            if(MAIN_CLIENT.useSignatureTimestamp)signatureTimestamp.timestamp else null,
+            if(MAIN_CLIENT.useSignatureTimestamp)timestamp().timestamp else null,
             poToken?.playerRequestPoToken,
             authenticated = false,
         ).getOrNull()
@@ -149,7 +167,7 @@ object YTPlayerUtils {
                     videoId,
                     playlistId,
                     candidate,
-                    if(candidate.useSignatureTimestamp)signatureTimestamp.timestamp else null,
+                    if(candidate.useSignatureTimestamp)timestamp().timestamp else null,
                     authenticated = false,
                 ).getOrNull()
                 if (response != null) {
@@ -202,7 +220,7 @@ object YTPlayerUtils {
                 videoId,
                 playlistId,
                 WEB_REMIX,
-                signatureTimestamp.timestamp,
+                timestamp().timestamp,
                 poToken?.playerRequestPoToken,
                 authenticated = true,
             ).getOrNull()
@@ -288,7 +306,7 @@ object YTPlayerUtils {
                 // Only pass poToken for clients that support it
                 val clientPoToken = if (client.useWebPoTokens) poToken?.playerRequestPoToken else null
                 // Skip signature timestamp for age-restricted (faster), use it for normal content
-                val clientSigTimestamp = if(client.useSignatureTimestamp && !wasOriginallyAgeRestricted) signatureTimestamp.timestamp else null
+                val clientSigTimestamp = if(client.useSignatureTimestamp) timestamp().timestamp else null
                 streamPlayerResponse =
                     boundedPlayer(
                         videoId,
@@ -354,7 +372,7 @@ object YTPlayerUtils {
                 } else {
                     STREAM_FALLBACK_CLIENTS[clientIndex]
                 }
-                streamUrl = patchClientVersion(streamUrl, currentClient.clientVersion)
+                streamUrl = currentClient.streamUrlWithIdentity(streamUrl)
 
                 // Check if this is a privately owned track
                 val isPrivatelyOwnedTrack = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
@@ -531,7 +549,7 @@ object YTPlayerUtils {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}")
 
         val format = playerResponse.streamingData?.adaptiveFormats
-            ?.filter { it.isAudio && it.isOriginal }
+            ?.filter { it.isAudio && it.isOriginal && (!it.url.isNullOrBlank() || !it.signatureCipher.isNullOrBlank() || !it.cipher.isNullOrBlank()) }
             ?.maxByOrNull {
                 it.bitrate * when (audioQuality) {
                     AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) -1 else 1
@@ -642,18 +660,14 @@ object YTPlayerUtils {
         val signatureCipher = format.signatureCipher ?: format.cipher
         if (!signatureCipher.isNullOrEmpty()) {
             Timber.tag(logTag).d("Format has signatureCipher, using YouTube player JavaScript")
-            val jsSolvedUrl = NewPipeExtractor.getSignatureUrl(format, videoId)
-            if (jsSolvedUrl != null) {
-                Timber.tag(logTag).d("Signature solved via YouTube player JavaScript")
-                return jsSolvedUrl
-            }
-
-            Timber.tag(logTag).d("Player-JS signature failed, trying bundled cipher fallback")
+            // The /player timestamp and decoder must come from the same fetched player.js.
             val customDeobfuscatedUrl = CipherDeobfuscator.deobfuscateStreamUrl(signatureCipher, videoId)
             if (customDeobfuscatedUrl != null) {
                 Timber.tag(logTag).d("Stream URL obtained via custom cipher deobfuscation")
                 return customDeobfuscatedUrl
             }
+            val jsSolvedUrl = NewPipeExtractor.getSignatureUrl(format, videoId)
+            if(jsSolvedUrl!=null)return jsSolvedUrl
             Timber.tag(logTag).d("Custom cipher deobfuscation failed")
 
         }
@@ -697,12 +711,6 @@ object YTPlayerUtils {
         Timber.tag(logTag).e("Failed to get stream URL")
         return null
     }
-
-    /** Keep the CDN URL aligned with the client version that minted it. */
-    private fun patchClientVersion(url: String, clientVersion: String): String =
-        if ("cver=" in url) {
-            url.replace(Regex("cver=[^&]+"), "cver=$clientVersion")
-        } else url
 
     fun forceRefreshForVideo(videoId: String) {
         Timber.tag(logTag).d("Force refreshing for videoId: $videoId")

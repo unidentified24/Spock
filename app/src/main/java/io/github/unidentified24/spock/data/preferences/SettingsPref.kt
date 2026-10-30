@@ -146,7 +146,8 @@ fun setCrossfadeDjMode(c: Context, v: Boolean) = prefs(c).edit().putBoolean(KEY_
 fun currentStreamingQuality(c: Context): StreamQuality {
     val cm = c.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     val isMetered = cm?.isActiveNetworkMetered ?: false
-    return if (isMetered) getCellularQuality(c) else getWifiQuality(c)
+    val wifi=cm?.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)==true
+    return if (io.github.unidentified24.spock.playback.NetworkQualityPolicy.useWifi(wifi,isMetered,isFlacWifiRequested(c))) getWifiQuality(c) else getCellularQuality(c)
 }
 
 fun isYouTubeSourceEnabled(c:Context)=prefs(c).getBoolean("source_youtube",true)
@@ -157,3 +158,6 @@ fun setFlacSourceEnabled(c:Context,on:Boolean)=prefs(c).edit().putBoolean("sourc
 
 fun isSoundCloudEnabled(c:Context)=prefs(c).getBoolean("soundcloud_enabled",true)
 fun setSoundCloudEnabled(c:Context,v:Boolean)=prefs(c).edit().putBoolean("soundcloud_enabled",v).apply()
+
+fun isFlacWifiRequested(c:Context)=prefs(c).getBoolean("flac_wifi_requested",false)
+fun enableFlacOverWifi(c:Context){prefs(c).edit().putBoolean("flac_wifi_requested",true).putBoolean("source_flac",true).putString(KEY_WIFI_Q,StreamQuality.LOSSLESS.name).apply()}

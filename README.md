@@ -1,8 +1,18 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.5 uses app ID `io.github.unidentified24.spock`, version code 25 and interface revision 2.5. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.6 uses app ID `io.github.unidentified24.spock`, version code 26 and interface revision 2.6. Android 8.0+.
 
-## Spock 2.5 faster audio starts
+## Spock 2.6 verified music playback
+
+Real Android tests reproduced the popular-track failures and drove fixes in YouTube transport compatibility, web-helper concurrency, recording matching and candidate arbitration. Twelve popular recordings now start in 1.14–3.95s in the measured test and decode near their end. See [PLAYBACK_TESTS.md](PLAYBACK_TESTS.md) for individual timings and limits.
+
+The player uses OkHttp, matching the stream-check network implementation. A direct-audio client and matching CDN headers restore native compatibility. Metadata-only formats are skipped; the browser fallback warms shared helpers, keeps callbacks local to each request and uses a cancellable token flow. Timestamp and signature decoding use the same fetched player. YouTube candidates must buffer and pass recording-length checks before cancelling competitors. Prepared next-track ownership survives manual transfer.
+
+Include FLAC over Wi-Fi now confirms its saved state and explicitly supports metered Wi-Fi while keeping mobile quality separate. The public FLAC pool includes 10 published community candidates, with complete search-to-full-FLAC verification competing per server and outage backoff. Probes found no newly working public FLAC server; enabling the option cannot make an unavailable upstream work. No personal server is required.
+
+105 JVM tests and 13 shipped-JavaScript checks pass. Live release publication remains deferred.
+
+## Spock 2.5 faster audio starts (previous update)
 
 The first buffered native source or confirmed Spotify playback starts immediately. A slow browser no longer holds ready audio for 5–14 seconds. Spock promotes the player that already buffered the stream, permits two concurrent preparations and cancels competing requests. The next queue item still prepares quietly while listening; manual selection can reuse its prepared audio too.
 

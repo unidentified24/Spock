@@ -47,8 +47,11 @@ internal object LosslessRegistry {
     private val SEED_PARTS = listOf("spotif", "lac:co", "mmunity:url:v1")
     private val AAD = "spotiflac|community|url|v1".toByteArray()
 
-    // Known-good defaults (used until/if the registry refresh succeeds).
-    private val DEFAULT_TIDAL = listOf("https://monochrome-api.samidy.com","https://hifi-api-bffw.onrender.com","https://tidal.anandserver.cfd")
+    // Published community candidates; only a validated FLAC stream is considered available.
+    private val DEFAULT_TIDAL = listOf("https://monochrome-api.samidy.com","https://hifi-api-bffw.onrender.com","https://api.monochrome.tf","https://wolf.qqdl.site","https://maus.qqdl.site","https://vogel.qqdl.site","https://katze.qqdl.site","https://hund.qqdl.site","https://tidal.kinoplus.online","https://tidal.anandserver.cfd")
+    @Volatile var lastPublicResult="Public FLAC availability is checked during playback; enabling it does not guarantee a working server."
+        private set
+    fun publicResult(available:Boolean){lastPublicResult=if(available)"Last FLAC check: full audio available" else "Last FLAC check: public servers unavailable; other audio sources keep competing"}
     private val health=ConcurrentHashMap<String,PlaybackBackoff>()
     fun ready(url:String)=health[url]?.available(nowMs())!=false
     fun failed(url:String){health.getOrPut(url){PlaybackBackoff(1,5*60*1000L)}.failure(nowMs())}
@@ -65,7 +68,7 @@ internal object LosslessRegistry {
     @Volatile private var failedAt = 0L
 
     /** Current Tidal community endpoints, freshest first, default appended. */
-    fun tidalEndpoints(): List<String> = (liveEndpoints+endpoints("tidal", "stream", DEFAULT_TIDAL)).distinct().filter(::ready).take(4)
+    fun tidalEndpoints(): List<String> = (liveEndpoints+endpoints("tidal", "stream", DEFAULT_TIDAL)).distinct().filter(::ready).take(10)
 
     /** Current Amazon community endpoints (self-resolve by Spotify id). */
     fun amazonEndpoints(): List<String> {

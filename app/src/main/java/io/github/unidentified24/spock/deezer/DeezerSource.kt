@@ -77,7 +77,7 @@ object DeezerSource {
 
         // ISRC → Deezer track id, falling back to a text search.
         val effectiveIsrc = isrc?.takeIf { it.isNotBlank() }
-            ?: spotifyId?.let { runCatching { Spotify.track(it).getOrNull()?.isrc }.getOrNull() }
+            ?: spotifyId?.takeIf{searchQuery.isNullOrBlank()}?.let { kotlinx.coroutines.withTimeoutOrNull(800){Spotify.track(it).getOrNull()?.isrc} }
         val deezerId = effectiveIsrc?.let { DeezerSession.deezerIdForIsrc(it) }
             ?: searchQuery?.takeIf { it.isNotBlank() }?.let { DeezerSession.searchTrackId(it, expectedDurationSec) }
             ?: return@withContext null

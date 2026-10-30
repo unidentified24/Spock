@@ -85,6 +85,11 @@ class MyApplication : Application(){
             }
         }
 
+        if(io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(this))appScope.launch {
+            kotlinx.coroutines.delay(750)
+            runCatching{com.metrolist.music.utils.YTPlayerUtils.prewarm()}
+        }
+
         // Warm the Home feed cache so the first navigation to Home is instant.
         // No-op (gracefully) until a Spotify token is available.
         val api = Api(this)

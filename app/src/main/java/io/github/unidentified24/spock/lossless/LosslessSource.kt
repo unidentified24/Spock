@@ -62,62 +62,44 @@ object LosslessSource {
             Result.NotFound
         }
 
-    private suspend fun resolveLegacy(context:Context,spotifyId:String,info:TrackInfo,preferHiRes:Boolean):FlacTrack? {
-            // 1. Tidal — SpotiFLAC's gated backend (if verified) then direct endpoints
-            tidalHit(context, spotifyId, info)?.let { hit ->
-                tidalFlac(context, hit, preferHiRes)?.let { return it }
-            } ?: Log.d(TAG, "no Tidal match for spotify:$spotifyId")
-            // 2. Amazon (self-resolves from the Spotify id; usually dormant)
-            amazonFlac(spotifyId)?.let { return it }
-            return null
-    }
-
-    // ── Provider: Tidal ───────────────────────────────────────────────────────
-    private suspend fun tidalFlac(context: Context, hit: TidalHit, preferHiRes: Boolean): FlacTrack? {
-        val tidalId = hit.id
-        // SpotiFLAC's own gated backend first (if the user completed verification) —
-        // it's their most reliable source. Falls through to the direct API-key ones.
-        if (SpotiflacGated.hasSession(context)) {
-            SpotiflacGated.tidalFlacUrl(context, tidalId, "LOSSLESS")?.takeIf { isFullTrack(it, hit.durationSec) }?.let {
-                Log.d(TAG, "SpotiFLAC gated FLAC for tidal:$tidalId")
-                return FlacTrack(it, "SpotiFLAC", "16")
-            }
-        }
-        // LOSSLESS (16-bit) is a single-file FLAC and the most reliable/fastest —
-        // request only it. HI_RES usually comes back as a multi-segment manifest we
-        // can't hand to the player as one URL anyway, and the extra slow call just
-        // burns the timeout budget on these flaky community servers.
-        val qualities = listOf("LOSSLESS")
-        for (batch in (listOf(hit.endpoint).filter{it.isNotBlank()&&LosslessRegistry.ready(it)}+LosslessRegistry.tidalEndpoints()).distinct().chunked(2)) {
-            val result=firstPlayable(batch.map{endpoint->
-                val owner=LookupConnections()
-                StreamLookup<FlacTrack>(cancel={owner.close()}){withContext(owner){
-            for (q in qualities) {
-                val track = runCatching {
-                    val body = get("$endpoint/track/?id=$tidalId&quality=$q", keyHeader())
-                    val data = JSONObject(body).optJSONObject("data") ?: return@runCatching null
-                    val manifest = decodeBtsManifest(data.optString("manifest")) ?: return@runCatching null
-                    val urls = manifest.optJSONArray("urls") ?: return@runCatching null
-                    // Single-file FLAC only — a multi-segment manifest can't be one URL.
-                    if (urls.length() != 1) return@runCatching null
-                    val flacUrl = urls.optString(0).takeIf { it.isNotBlank() } ?: return@runCatching null
-                    if (!manifest.optString("mimeType").contains("flac", true) && !flacUrl.contains(".flac")) {
-                        return@runCatching null
+    private suspend fun resolveLegacy(context:Context,spotifyId:String,info:TrackInfo,preferHiRes:Boolean):FlacTrack? = coroutineScope {
+        if(info.title.isBlank() || info.artist.isBlank())return@coroutineScope null
+        val firstHit=CompletableDeferred<TidalHit>()
+        val routes=LosslessRegistry.tidalEndpoints().map{endpoint->
+            val owner=LookupConnections()
+            StreamLookup<FlacTrack>(cancel={owner.close()}){withContext(owner){
+                try {
+                    val q=URLEncoder.encode(info.title+" "+info.artist,"UTF-8")
+                    val data=JSONObject(get("$endpoint/search/?s=$q",keyHeader())).optJSONObject("data")
+                    val items=data?.optJSONArray("items") ?: data?.optJSONObject("tracks")?.optJSONArray("items")
+                    val hits=if(items==null)emptyList() else (0 until items.length()).mapNotNull{i->
+                        val t=items.optJSONObject(i) ?: return@mapNotNull null
+                        TidalHit(t.optString("id"),t.optString("title"),t.optJSONObject("artist")?.optString("name").orEmpty(),t.optInt("duration"),t.optString("isrc"),endpoint)
                     }
-                    val bits = data.optInt("bitDepth", 16).let { if (it in 8..32) it else 16 }
-                    FlacTrack(flacUrl, "Tidal", bits.toString())
-                }.getOrNull()
-                if (track != null && isFullTrack(track.url, hit.durationSec)) {
-                    Log.d(TAG, "Tidal ${track.quality}-bit via $endpoint (tidal:$tidalId)")
-                    return@withContext track
-                }
-            }
-            null
-        }}
-            },timeoutMs=8000)
-            if(result!=null)return result
+                    val hit=pickTidalHit(hits,info.isrc,info.title,info.artist,info.durationSec) ?: return@withContext null
+                    firstHit.complete(hit)
+                    val track=JSONObject(get("$endpoint/track/?id=${hit.id}&quality=LOSSLESS",keyHeader())).optJSONObject("data") ?: return@withContext null
+                    val manifest=decodeBtsManifest(track.optString("manifest")) ?: return@withContext null
+                    val urls=manifest.optJSONArray("urls") ?: return@withContext null
+                    if(urls.length()!=1 || !manifest.optString("mimeType").contains("flac",true))return@withContext null
+                    val url=urls.optString(0)
+                    if(!url.startsWith("https://") || !isFullTrack(url,info.durationSec)){LosslessRegistry.failed(endpoint);return@withContext null}
+                    LosslessRegistry.succeeded(endpoint)
+                    FlacTrack(url,"Tidal",track.optInt("bitDepth",16).coerceIn(8,32).toString())
+                }catch(c:CancellationException){throw c}
+                 catch(_:Exception){LookupConnections.checkActive();LosslessRegistry.failed(endpoint);null}
+            }}
+        }.toMutableList()
+        if(SpotiflacGated.hasSession(context)){
+            val owner=LookupConnections()
+            routes+=StreamLookup(cancel={owner.close()}){withContext(owner){
+                val hit=firstHit.await()
+                SpotiflacGated.tidalFlacUrl(context,hit.id,"LOSSLESS")?.takeIf{isFullTrack(it,info.durationSec)}?.let{FlacTrack(it,"SpotiFLAC","16")}
+            }}
         }
-        return null
+        val winner=firstPlayable(routes,timeoutMs=3500)
+        LosslessRegistry.publicResult(winner!=null)
+        winner
     }
 
     // ── Provider: Amazon (self-resolving; skips encrypted responses) ──────────
@@ -154,38 +136,6 @@ object LosslessSource {
         val endpoint:String="",
     )
 
-    /** Spotify id → Tidal track via the Tidal backend's search, matched against the track's details. */
-    private suspend fun tidalHit(context: Context, spotifyId: String, known: TrackInfo): TidalHit? {
-        // The play site usually knows the track; Spotify's REST track lookup is often
-        // rate limited (429) for the web token, so it is only the fallback.
-        val info = known.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() } ?: run {
-            if (!io.github.unidentified24.spock.data.api.SpotifyTokenProvider.ensureToken(context)) return null
-            val t = com.metrolist.spotify.Spotify.track(spotifyId).getOrNull() ?: return null
-            TrackInfo(t.name, t.artists.firstOrNull()?.name.orEmpty(), t.durationMs / 1000, t.isrc.orEmpty())
-        }
-        val q = URLEncoder.encode("${info.title} ${info.artist}", "UTF-8")
-        suspend fun search(endpoint:String):TidalHit? {
-            val hits = runCatching {
-                val items = JSONObject(get("$endpoint/search/?s=$q", keyHeader()))
-                    .optJSONObject("data")?.let{it.optJSONArray("items") ?: it.optJSONObject("tracks")?.optJSONArray("items")} ?: return@runCatching emptyList()
-                (0 until items.length()).mapNotNull { i ->
-                    val o = items.optJSONObject(i) ?: return@mapNotNull null
-                    TidalHit(
-                        id = o.optString("id"), title = o.optString("title"),
-                        artist = o.optJSONObject("artist")?.optString("name").orEmpty(),
-                        durationSec = o.optInt("duration"), isrc = o.optString("isrc"),
-                    )
-                }
-            }.getOrDefault(emptyList())
-            return pickTidalHit(hits, info.isrc, info.title, info.artist, info.durationSec)?.copy(endpoint=endpoint)
-        }
-        for(batch in LosslessRegistry.tidalEndpoints().chunked(2)){
-            val winner=firstPlayable(batch.map{endpoint->val owner=LookupConnections();StreamLookup(cancel={owner.close()}){withContext(owner){search(endpoint)}}},timeoutMs=7000)
-            if(winner!=null)return winner
-        }
-        return null
-    }
-
     /**
      * Same recording by ISRC if Spotify has one; otherwise same title and artist with
      * a length within 3 s, so a live version or a cover is never streamed instead.
@@ -204,23 +154,22 @@ object LosslessSource {
      * the real track it ends early and the queue skips ahead every 30 s. A FLAC file
      * states its length in STREAMINFO (first 42 bytes), so one tiny range read tells.
      */
-    private fun isFullTrack(url: String, expectedSec: Int): Boolean {
-        if (expectedSec <= 0) return true
+    internal fun isFullTrack(url: String, expectedSec: Int): Boolean {
         val seconds = runCatching {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 io.github.unidentified24.spock.playback.LookupConnections.track(this)
-                connectTimeout = 3000
-                readTimeout = 3000
+                connectTimeout = 1200
+                readTimeout = 1800
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Range", "bytes=0-41")
             }
             val head = try {
-                conn.inputStream.use { it.readNBytes(42) }
+                conn.inputStream.use { it.readPrefix(42) }
             } finally {
                 conn.disconnect()
             }
             flacDurationSec(head)
-        }.getOrNull() ?: return true // not a plain FLAC header: can't tell, keep it
+        }.getOrNull() ?: return false // A search/URL alone is not evidence of playable full audio.
         val full = seconds >= expectedSec - 5
         if (!full) Log.d(TAG, "rejected ${seconds}s preview (expected ${expectedSec}s)")
         return full
@@ -254,8 +203,8 @@ object LosslessSource {
         val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
                 io.github.unidentified24.spock.playback.LookupConnections.track(this)
             requestMethod = "GET"
-            connectTimeout = 3000
-            readTimeout = 3000
+            connectTimeout = 1200
+            readTimeout = 1800
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Accept", "application/json, text/plain, */*")
             if(java.net.URI(urlString).host=="tidal.anandserver.cfd")headers.forEach { (k, v) -> setRequestProperty(k, v) }
@@ -267,7 +216,6 @@ object LosslessSource {
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) throw java.io.IOException("HTTP $code: ${text.take(120)}")
-            LosslessRegistry.succeeded(base)
             text
         } catch(error:Exception){LookupConnections.checkActive();LosslessRegistry.failed(base);throw error
         } finally {

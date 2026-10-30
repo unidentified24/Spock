@@ -28,8 +28,10 @@ object DirectLossless {
             }
             val hit=LosslessSource.pickTidalHit(hits,info.isrc,info.title,info.artist,info.durationSec) ?: return@withContext null
             if(!hit.id.matches(Regex("[A-Za-z0-9_-]{1,128}")))return@withContext null
+            val url="$BASE/track/${hit.id}"
+            if(!LosslessSource.isFullTrack(url,info.durationSec)){health.failure(System.currentTimeMillis());return@withContext null}
             health.success()
-            LosslessSource.FlacTrack("$BASE/track/${hit.id}","Monochrome","")
+            LosslessSource.FlacTrack(url,"Monochrome","")
         }catch(c:CancellationException){throw c}
          catch(_:Exception){LookupConnections.checkActive();health.failure(System.currentTimeMillis());null}
     }

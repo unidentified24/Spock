@@ -1,5 +1,14 @@
 # Changes
 
+## 2.6
+
+- Reproduced popular-track failures with real Android decoding; twelve final samples started in 1.14–3.95s and decoded near their end.
+- Unified stream checks/playback on OkHttp; added verified direct-audio client/header handling and skipped metadata-only formats.
+- Fixed mixed identifiers in concurrent token callbacks, removed a blocking token wrapper, warmed shared helpers and aligned the signature timestamp with its decoder.
+- Native recording-length checks and preparation now run inside the YouTube candidate race; wrong/unplayable candidates cannot cancel good alternatives. Preserve queue ownership during prepared-player handoff.
+- Explicit Wi-Fi FLAC confirmation/policy, public mirror pool expansion and full-file validation per competing host. No new working FLAC service is claimed.
+- Avoid redundant Deezer-to-Spotify mapping when text metadata is available. Android 8-compatible bounded header reads replace newer InputStream APIs.
+
 ## 2.5
 
 - Race confirmed Spotify playback against already-buffered native audio; remove mandatory browser preference delay. Retain the prepared winning player instead of reopening its stream.

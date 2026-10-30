@@ -35,6 +35,11 @@ data class YouTubeClient(
         origin?.let { put("Origin", it) }
         referer?.let { put("Referer", it) }
     }
+
+    /** Keep the unsigned client-version hint so CDN requests restore the same User-Agent. */
+    fun streamUrlWithIdentity(url:String):String = if(Regex("[?&]cver=").containsMatchIn(url))
+        url.replace(Regex("([?&]cver=)[^&]+"),"$1$clientVersion")
+        else url+(if('?' in url)"&" else "?")+"cver=$clientVersion"
     fun toContext(locale: YouTubeLocale, visitorData: String?, dataSyncId: String?) = Context(
         client = Context.Client(
             clientName = clientName,
@@ -131,6 +136,12 @@ data class YouTubeClient(
             osVersion = "18.5.22F70",
         )
 
+        // Verified direct-audio response. Newer iOS identities may return SABR metadata only.
+        val IOS_DIRECT = IOS.copy(
+            clientVersion = "20.10.4",
+            userAgent = "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+        )
+
         val ANDROID_MUSIC = YouTubeClient(
             clientName = "ANDROID_MUSIC",
             clientVersion = "8.39.42",
@@ -170,7 +181,7 @@ data class YouTubeClient(
                 name == "ANDROID_MUSIC" -> ANDROID_MUSIC
                 name == "ANDROID_VR" -> if (version == ANDROID_VR_1_43_32.clientVersion) ANDROID_VR_1_43_32 else ANDROID_VR_1_65_10
                 name.startsWith("ANDROID") -> MOBILE
-                name.startsWith("IOS") -> if (version == IOS_RECENT.clientVersion) IOS_RECENT else IOS
+                name.startsWith("IOS") -> when(version){IOS_DIRECT.clientVersion->IOS_DIRECT;IOS_RECENT.clientVersion->IOS_RECENT;else->IOS}
                 name.startsWith("TVHTML5") -> TVHTML5
                 name == "WEB_REMIX" -> WEB_REMIX
                 else -> IOS

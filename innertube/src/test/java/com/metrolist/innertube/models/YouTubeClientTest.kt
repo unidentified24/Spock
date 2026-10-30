@@ -7,6 +7,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YouTubeClientTest {
+    @Test fun directAudioClientKeepsItsOwnIdentityAtTheCdn(){
+        val client=YouTubeClient.IOS_DIRECT
+        val restored=YouTubeClient.forStreamUrl("https://r.example.googlevideo.com/videoplayback?c=IOS&cver=20.10.4")
+        assertEquals(client,restored)
+        assertEquals(client.userAgent,restored.mediaHeaders()["User-Agent"])
+        assertFalse(client.useWebPoTokens)
+    }
+    @Test fun missingVersionHintDoesNotFallBackToAnIncompatibleUserAgent(){
+        val client=YouTubeClient.IOS_DIRECT
+        val original="https://r.example.googlevideo.com/videoplayback?c=IOS&sig=unchanged"
+        val tagged=client.streamUrlWithIdentity(original)
+        assertTrue(tagged.startsWith(original))
+        assertEquals(client,YouTubeClient.forStreamUrl(tagged))
+        assertEquals(1,Regex("cver=").findAll(client.streamUrlWithIdentity(tagged)).count())
+    }
     @Test
     fun nativeMusicClientUsesYouTubeEndpointWithoutBrowserHeaders() {
         val client = YouTubeClient.ANDROID_MUSIC

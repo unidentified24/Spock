@@ -204,16 +204,16 @@ class PoTokenWebView private constructor(
                 // NOTE: obtainPoToken is now async, so we use .then()
                 webView.evaluateJavascript(
                     """try {
-                        identifier = "$identifier"
-                        u8Identifier = ${stringToU8(identifier)}
+                        const identifier = "$identifier";
+                        const u8Identifier = ${stringToU8(identifier)};
                         obtainPoToken(u8Identifier).then(function(poTokenU8) {
-                            poTokenU8String = poTokenU8.join(",")
+                            const poTokenU8String = poTokenU8.join(",");
                             $JS_INTERFACE.onObtainPoTokenResult(identifier, poTokenU8String)
                         }).catch(function(error) {
                             $JS_INTERFACE.onObtainPoTokenError(identifier, error + "\n" + (error.stack || ''))
                         })
                     } catch (error) {
-                        $JS_INTERFACE.onObtainPoTokenError(identifier, error + "\n" + error.stack)
+                        $JS_INTERFACE.onObtainPoTokenError("$identifier", error + "\n" + error.stack)
                     }""",
                     null
                 )
