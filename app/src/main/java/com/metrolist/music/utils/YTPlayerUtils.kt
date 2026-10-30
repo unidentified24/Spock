@@ -52,13 +52,13 @@ object YTPlayerUtils {
     private val MAIN_CLIENT: YouTubeClient = ANDROID_MUSIC
 
     private val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
-        WEB_REMIX,
-        TVHTML5,
         ANDROID_VR_1_65_10,
+        IOS_RECENT,
         ANDROID_VR_1_43_32,
         IOS,
-        IOS_RECENT,
         MOBILE,
+        WEB_REMIX,
+        TVHTML5,
     )
 
     private suspend fun boundedPlayer(videoId:String,playlistId:String?=null,client:YouTubeClient,signatureTimestamp:Int?=null,poToken:String?=null,authenticated:Boolean=false):Result<PlayerResponse> =

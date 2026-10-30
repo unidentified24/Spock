@@ -1,8 +1,18 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.4 uses app ID `io.github.unidentified24.spock`, version code 24 and interface revision 2.4. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.5 uses app ID `io.github.unidentified24.spock`, version code 25 and interface revision 2.5. Android 8.0+.
 
-## Spock 2.4 playback handoff
+## Spock 2.5 faster audio starts
+
+The first buffered native source or confirmed Spotify playback starts immediately. A slow browser no longer holds ready audio for 5–14 seconds. Spock promotes the player that already buffered the stream, permits two concurrent preparations and cancels competing requests. The next queue item still prepares quietly while listening; manual selection can reuse its prepared audio too.
+
+Public SoundCloud tracks join Deezer, YouTube and FLAC without an account, personal API key or hosted server. Matching checks title, artist and duration and rejects unexpected alternate recordings. SoundCloud HLS streams play through Media3; progressive audio is also available as a download fallback. HLS playlists are never saved as offline audio. The song menu links to the matched SoundCloud page.
+
+FLAC discovery now includes the modern Monochrome protocol, extra public HiFi candidates, a refreshed verified-server list and five-minute outage backoff. These are community services: probes during development found failing/blocked servers, so this is not a claim that more working FLAC servers are currently available. FLAC lookups cannot hold up another buffered provider. Wi-Fi permits more foreground read-ahead with a bounded next-track buffer; cellular has smaller limits. Browser startup is lazy, idle page polling is reduced and player animation updates are capped at 30 fps.
+
+See BUILD_REPORT.md for measured checks and limits. Live release publishing remains deferred.
+
+## Spock 2.4 playback handoff (previous behavior)
 
 Selected Spotify tracks first use your existing Spotify session for browser playback. While listening, Spock prepares the next track from enabled native sources, preferring the best prepared quality. Two seconds before the end it locks the route: buffered native audio, or the warm Spotify browser session. Local files and downloads remain native and offline. The interface and playback device registration use Spock branding. Connected music → Spock instant start controls the hybrid route; crossfade remains in native-only mode.
 
@@ -51,4 +61,4 @@ The signed-release updater checks this repository, verifies downloaded packages 
 
 This is an independent downstream fork of a fork of spotui. The UI rebuild does not erase the inherited playback code or its authorship. [NOTICE.md](NOTICE.md) retains upstream credits and [LICENSE](LICENSE) retains GPL v3. Montserrat's OFL notice is bundled in the source and app. [RESEARCH.md](RESEARCH.md) records the performance research and its limits. [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md) lists remaining public-release checks.
 
-No live authenticated provider timing, Android device installation or visual device test has been performed in the restricted build environment. Unit tests and compilation do not prove those flows.
+The build report separates automated/emulator checks from live signed-in provider tests. Compilation and public-source probes do not prove reliable playback for every listener or recording.

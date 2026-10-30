@@ -82,12 +82,13 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     var yt by remember {mutableStateOf(isYouTubeSourceEnabled(context))}
     var flac by remember {mutableStateOf(isFlacSourceEnabled(context))}
     var dz by remember {mutableStateOf(isDeezerRaceEnabled(context))}
+    var sc by remember {mutableStateOf(isSoundCloudEnabled(context))}
     var instant by remember {mutableStateOf(isWebPlaybackEnabled(context))}
     StudioCard(Modifier.fillMaxWidth()) {
         Icon(Icons.Default.Bolt,null,tint=AppPalette)
-        Text("A quick start. A prepared next song.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
-        Text("Spock uses your Spotify session for a tapped song, while preparing the next track from enabled sources. Two seconds before the end, an unprepared next track stays on Spotify playback.",color=TextMuted)
-        SourceToggle("Spock instant start","Uses your existing Spotify connection. Availability depends on your account and Android System WebView.",instant){instant=it;setWebPlaybackEnabled(context,it)}
+        Text("The first ready audio plays.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
+        Text("Spotify and enabled native sources start together. Spock plays the first verified audio and prepares one next track in the background.",color=TextMuted)
+        SourceToggle("Spock instant start","Includes your existing Spotify connection in the race. A slow browser does not hold up ready native audio.",instant){instant=it;setWebPlaybackEnabled(context,it)}
     }
     StudioCard(Modifier.fillMaxWidth()) {
         SourceToggle("YouTube Music",if(isYoutubeLoggedIn(context))"Connected" else "Anonymous · connect for account access",yt){yt=it;setYouTubeSourceEnabled(context,it)}
@@ -106,6 +107,10 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
         Text("Experimental community services can be unavailable. YouTube and Deezer keep competing.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={setWifiQuality(context,StreamQuality.LOSSLESS);setFlacSourceEnabled(context,true);flac=true}) {Text("Include FLAC over Wi-Fi")}
         TextButton(onClick={nav.navigate(Routes.SpotiflacVerify.route)}){Text(if(hasSpotiflacSession(context))"Refresh verification" else "Set up FLAC verification")}
+    }
+    StudioCard(Modifier.fillMaxWidth()) {
+        SourceToggle("SoundCloud","Public playable tracks · no account setup",sc){sc=it;setSoundCloudEnabled(context,it)}
+        Text("Availability depends on the recording and region. Spock rejects obvious covers, remixes and previews.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
     }
     StudioAction("Spotify connection","Your library, playlists and recommendations",Icons.Default.AccountCircle){nav.navigate(Routes.Login.route)}
 }

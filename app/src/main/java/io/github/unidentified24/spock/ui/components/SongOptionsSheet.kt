@@ -213,6 +213,12 @@ fun SongOptionsSheet(
                 navController.navigate(albumRoute(song.album, song.singer))
                 onDismiss()
             }
+            io.github.unidentified24.spock.soundcloud.SoundCloudSource.pageFor(song.url)?.let { page ->
+                SongMenuRow(Icons.Default.PlayArrow, "Open track on SoundCloud") {
+                    runCatching{context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(page)))}
+                    onDismiss()
+                }
+            }
             SongMenuRow(Icons.Default.Share, "Share") {
                 // Share the real Spotify track link when we know the id.
                 val shareText = song.spotifyTrackId.takeIf { it.isNotBlank() }

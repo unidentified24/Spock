@@ -1,5 +1,13 @@
 # Changes
 
+## 2.5
+
+- Race confirmed Spotify playback against already-buffered native audio; remove mandatory browser preference delay. Retain the prepared winning player instead of reopening its stream.
+- Two concurrent native preparations, bounded Wi-Fi/cellular read-ahead, manual reuse of prepared next audio, shared YouTube search locking and native-first YouTube fallbacks.
+- Public SoundCloud extraction, strict recording matching, HLS support, attribution links and progressive-download fallback. No listener API keys or private server.
+- Modern Monochrome adapter, extra HiFi candidates, verified-list refresh off the UI thread and per-host outage backoff. Public FLAC availability remains experimental.
+- Lazy Spotify browser creation, reduced idle polling, bounded extractor timeouts and fewer animation updates. Millisecond startup diagnostics remain local and exclude URLs/tokens.
+
 ## 1.8
 
 - Enabled Deezer, configured FLAC sources, and YouTube now resolve concurrently. The first usable result wins; misses/errors cannot win the race.

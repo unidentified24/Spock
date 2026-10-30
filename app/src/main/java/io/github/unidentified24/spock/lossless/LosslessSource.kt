@@ -3,6 +3,8 @@ package io.github.unidentified24.spock.lossless
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
+import io.github.unidentified24.spock.playback.*
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -48,17 +50,30 @@ object LosslessSource {
         preferHiRes: Boolean = true,
     ): Result =
         withContext(Dispatchers.IO) {
-            // 1. Tidal — SpotiFLAC's gated backend (if verified) then direct endpoints
-            tidalHit(context, spotifyId, info)?.let { hit ->
-                tidalFlac(context, hit, preferHiRes)?.let { return@withContext Result.Success(it) }
-            } ?: Log.d(TAG, "no Tidal match for spotify:$spotifyId")
-            // 2. Amazon (self-resolves from the Spotify id; usually dormant)
-            amazonFlac(spotifyId)?.let { return@withContext Result.Success(it) }
+            // Independent direct-file and authenticated/legacy routes compete; dead hosts cannot serially delay playback.
+            val routes:List<suspend ()->FlacTrack?> = listOf(
+                {DirectLossless.resolve(info)},
+                {resolveLegacy(context,spotifyId,info,preferHiRes)},
+            )
+            firstPlayable(routes.map{route->
+                val owner=LookupConnections()
+                StreamLookup(cancel={owner.close()}){withContext(owner){route()}}
+            },timeoutMs=18000)?.let{return@withContext Result.Success(it)}
             Result.NotFound
         }
 
+    private suspend fun resolveLegacy(context:Context,spotifyId:String,info:TrackInfo,preferHiRes:Boolean):FlacTrack? {
+            // 1. Tidal — SpotiFLAC's gated backend (if verified) then direct endpoints
+            tidalHit(context, spotifyId, info)?.let { hit ->
+                tidalFlac(context, hit, preferHiRes)?.let { return it }
+            } ?: Log.d(TAG, "no Tidal match for spotify:$spotifyId")
+            // 2. Amazon (self-resolves from the Spotify id; usually dormant)
+            amazonFlac(spotifyId)?.let { return it }
+            return null
+    }
+
     // ── Provider: Tidal ───────────────────────────────────────────────────────
-    private fun tidalFlac(context: Context, hit: TidalHit, preferHiRes: Boolean): FlacTrack? {
+    private suspend fun tidalFlac(context: Context, hit: TidalHit, preferHiRes: Boolean): FlacTrack? {
         val tidalId = hit.id
         // SpotiFLAC's own gated backend first (if the user completed verification) —
         // it's their most reliable source. Falls through to the direct API-key ones.
@@ -73,7 +88,10 @@ object LosslessSource {
         // can't hand to the player as one URL anyway, and the extra slow call just
         // burns the timeout budget on these flaky community servers.
         val qualities = listOf("LOSSLESS")
-        for (endpoint in LosslessRegistry.tidalEndpoints()) {
+        for (batch in (listOf(hit.endpoint).filter{it.isNotBlank()&&LosslessRegistry.ready(it)}+LosslessRegistry.tidalEndpoints()).distinct().chunked(2)) {
+            val result=firstPlayable(batch.map{endpoint->
+                val owner=LookupConnections()
+                StreamLookup<FlacTrack>(cancel={owner.close()}){withContext(owner){
             for (q in qualities) {
                 val track = runCatching {
                     val body = get("$endpoint/track/?id=$tidalId&quality=$q", keyHeader())
@@ -91,9 +109,13 @@ object LosslessSource {
                 }.getOrNull()
                 if (track != null && isFullTrack(track.url, hit.durationSec)) {
                     Log.d(TAG, "Tidal ${track.quality}-bit via $endpoint (tidal:$tidalId)")
-                    return track
+                    return@withContext track
                 }
             }
+            null
+        }}
+            },timeoutMs=8000)
+            if(result!=null)return result
         }
         return null
     }
@@ -129,6 +151,7 @@ object LosslessSource {
 
     internal data class TidalHit(
         val id: String, val title: String, val artist: String, val durationSec: Int, val isrc: String,
+        val endpoint:String="",
     )
 
     /** Spotify id → Tidal track via the Tidal backend's search, matched against the track's details. */
@@ -141,10 +164,10 @@ object LosslessSource {
             TrackInfo(t.name, t.artists.firstOrNull()?.name.orEmpty(), t.durationMs / 1000, t.isrc.orEmpty())
         }
         val q = URLEncoder.encode("${info.title} ${info.artist}", "UTF-8")
-        for (endpoint in LosslessRegistry.tidalEndpoints()) {
+        suspend fun search(endpoint:String):TidalHit? {
             val hits = runCatching {
                 val items = JSONObject(get("$endpoint/search/?s=$q", keyHeader()))
-                    .optJSONObject("data")?.optJSONArray("items") ?: return@runCatching emptyList()
+                    .optJSONObject("data")?.let{it.optJSONArray("items") ?: it.optJSONObject("tracks")?.optJSONArray("items")} ?: return@runCatching emptyList()
                 (0 until items.length()).mapNotNull { i ->
                     val o = items.optJSONObject(i) ?: return@mapNotNull null
                     TidalHit(
@@ -154,7 +177,11 @@ object LosslessSource {
                     )
                 }
             }.getOrDefault(emptyList())
-            pickTidalHit(hits, info.isrc, info.title, info.artist, info.durationSec)?.let { return it }
+            return pickTidalHit(hits, info.isrc, info.title, info.artist, info.durationSec)?.copy(endpoint=endpoint)
+        }
+        for(batch in LosslessRegistry.tidalEndpoints().chunked(2)){
+            val winner=firstPlayable(batch.map{endpoint->val owner=LookupConnections();StreamLookup(cancel={owner.close()}){withContext(owner){search(endpoint)}}},timeoutMs=7000)
+            if(winner!=null)return winner
         }
         return null
     }
@@ -182,8 +209,8 @@ object LosslessSource {
         val seconds = runCatching {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 io.github.unidentified24.spock.playback.LookupConnections.track(this)
-                connectTimeout = 8_000
-                readTimeout = 8_000
+                connectTimeout = 3000
+                readTimeout = 3000
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Range", "bytes=0-41")
             }
@@ -227,19 +254,22 @@ object LosslessSource {
         val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
                 io.github.unidentified24.spock.playback.LookupConnections.track(this)
             requestMethod = "GET"
-            connectTimeout = 8_000
-            readTimeout = 8_000
+            connectTimeout = 3000
+            readTimeout = 3000
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Accept", "application/json, text/plain, */*")
-            headers.forEach { (k, v) -> setRequestProperty(k, v) }
+            if(java.net.URI(urlString).host=="tidal.anandserver.cfd")headers.forEach { (k, v) -> setRequestProperty(k, v) }
         }
+        val base=java.net.URI(urlString).let{it.scheme+"://"+it.host}
         return try {
             conn.connect()
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) throw java.io.IOException("HTTP $code: ${text.take(120)}")
+            LosslessRegistry.succeeded(base)
             text
+        } catch(error:Exception){LookupConnections.checkActive();LosslessRegistry.failed(base);throw error
         } finally {
             conn.disconnect()
         }

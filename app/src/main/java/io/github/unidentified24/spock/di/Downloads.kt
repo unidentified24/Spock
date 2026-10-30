@@ -230,6 +230,7 @@ object Downloads {
             dlQuality.audioQuality == com.metrolist.music.constants.AudioQuality.HIGH
         if (!ytFirst) heldDeezer?.let { if (downloadDeezerRaw(song, appContext, it)) return true }
         if (!SongPlayer.youtubeEnabled) {
+            if(downloadSoundCloud(song,appContext))return true
             recordError(song.url,"Track not available for download")
             return false
         }
@@ -239,6 +240,7 @@ object Downloads {
         // walking the ranked video candidates like playback does.
         val playback = attempt { SongPlayer.resolveYtPlayback(query, dlQuality.audioQuality, appContext) } ?: run {
             if (ytFirst && downloadDeezerRaw(song, appContext, heldDeezer!!)) return true
+            if(downloadSoundCloud(song,appContext))return true
             recordError(query,"Couldn't resolve a stream")
             return false
         }
@@ -249,9 +251,20 @@ object Downloads {
 
         if (!httpDownloadRanged(playback.streamUrl, tmpFile, song.url)) {
             runCatching { tmpFile.delete() }
-            return false
+            return downloadSoundCloud(song,appContext)
         }
-        return commitFile(appContext,song,tmpFile,outFile)
+        return commitFile(appContext,song,tmpFile,outFile) || downloadSoundCloud(song,appContext)
+    }
+
+    /** Progressive public audio only: an HLS playlist must never be saved as an offline song. */
+    private suspend fun downloadSoundCloud(song:io.github.unidentified24.spock.data.entity.SongsModel,context:Context):Boolean {
+        if(!io.github.unidentified24.spock.data.preferences.isSoundCloudEnabled(context))return false
+        val stream=attempt{withTimeoutOrNull(10000){io.github.unidentified24.spock.soundcloud.SoundCloudSource.resolve(song.url,song.title,song.singer,song.durationMs/1000)}} ?: return false
+        if(stream.hls)return false
+        val dir=java.io.File(context.filesDir,"downloads").apply{mkdirs()}
+        val tmp=java.io.File(dir,"${song.id}.scpart")
+        if(!httpDownloadRanged(stream.url,tmp,song.url)){tmp.delete();return false}
+        return commitFile(context,song,tmp,java.io.File(dir,"${song.id}.audio"))
     }
 
     /**

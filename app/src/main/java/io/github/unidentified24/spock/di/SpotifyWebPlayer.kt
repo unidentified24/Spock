@@ -41,7 +41,7 @@ object SpotifyWebPlayer {
     private val poll=object:Runnable {
         override fun run() {
             val wv=webView
-            if(wv!=null&&!pollPending) {
+            if(wv!=null&&!pollPending && (requestActive || !capabilityKnown)) {
                 pollPending=true
                 val expectedToken=token
                 wv.evaluateJavascript("JSON.stringify({drm:window.__spockDrm,playback:window.__spockPlayback?window.__spockPlayback.snapshot():null})") { raw ->
@@ -61,7 +61,7 @@ object SpotifyWebPlayer {
                     onStateChanged?.invoke()
                 }
             }
-            if(webView!=null)handler.postDelayed(this,250)
+            if(webView!=null)handler.postDelayed(this,if(requestActive)250 else 2000)
         }
     }
 
@@ -129,6 +129,7 @@ object SpotifyWebPlayer {
     fun playEpisode(id:String)=playUri("spotify:episode:$id")
     private fun playUri(uri:String){
         if(!uri.matches(Regex("spotify:(track|episode):[A-Za-z0-9]+")))return
+        handler.removeCallbacks(poll);handler.post(poll)
         token++;requestedUri=uri;requestActive=true;positionMs=0;durationMs=0;isPlaying=false;confirmed=false;ended=false;progress.reset(uri)
         webView?.let{if(pageReady)startPage(it)}
     }
@@ -142,9 +143,11 @@ object SpotifyWebPlayer {
 
     /** Acknowledged pause before native playback starts; destroy on a wedged browser. */
     suspend fun stopForNative()=withContext(Dispatchers.Main){
-        requestActive=false;token++;isPlaying=false;confirmed=false;ended=false
+        val needed=requestActive || isPlaying || buffering
+        requestActive=false;token++;isPlaying=false;buffering=false;confirmed=false;ended=false
+        if(!needed)return@withContext
         val wv=webView ?: return@withContext
-        val stopped=withTimeoutOrNull(1000){suspendCancellableCoroutine<Boolean>{c->
+        val stopped=withTimeoutOrNull(350){suspendCancellableCoroutine<Boolean>{c->
             wv.evaluateJavascript("window.__spockPlayback?window.__spockPlayback.stop():true"){if(c.isActive)c.resume(it=="true")}
         }} ?: false
         if(!stopped)detach()

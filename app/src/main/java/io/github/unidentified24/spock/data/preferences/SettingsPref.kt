@@ -153,3 +153,7 @@ fun isYouTubeSourceEnabled(c:Context)=prefs(c).getBoolean("source_youtube",true)
 fun setYouTubeSourceEnabled(c:Context,on:Boolean)=prefs(c).edit().putBoolean("source_youtube",on).apply()
 fun isFlacSourceEnabled(c:Context)=prefs(c).getBoolean("source_flac",true)
 fun setFlacSourceEnabled(c:Context,on:Boolean)=prefs(c).edit().putBoolean("source_flac",on).apply()
+
+
+fun isSoundCloudEnabled(c:Context)=prefs(c).getBoolean("soundcloud_enabled",true)
+fun setSoundCloudEnabled(c:Context,v:Boolean)=prefs(c).edit().putBoolean("soundcloud_enabled",v).apply()

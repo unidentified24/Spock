@@ -1,5 +1,7 @@
 # Spock and its upstreams
 
+Spock 2.5 adds public SoundCloud playback using the bundled NewPipeExtractor (GPL-3.0). Recording matching retains title/creator information, source diagnostics identify SoundCloud, and the song menu links to the matched SoundCloud page. No SoundCloud client secret, user account, hosted proxy, or private server is bundled or required. Availability depends on each public upload and SoundCloud's service. HLS playback uses AndroidX Media3 under Apache-2.0. Public FLAC instance discovery also consults https://github.com/kipavy/spotube-plugin-lossless-sources; Spock independently implements its network adapter and uses only the registry's verified sources list.
+
 Spock 2.4's browser playback design was informed by inspection of the user-supplied SpotiDuck v1.2.5 package (23fpsz, built on deviato's Spotify web wrapper). The Spock playback bridge is an independent implementation. SpotiDuck's interface, login UI, icons, styles, ad filters and complete wrapper scripts are not bundled. Spock continues to use its existing Spotify connection. See https://github.com/23fpsz/SpotiDuck-Releases for the reference project's documentation and credits.
 
 Spock is an independent downstream fork of a fork of **spotui**. It is not a ground-up rewrite, an official Spotify app, or affiliated with Spotify AB.

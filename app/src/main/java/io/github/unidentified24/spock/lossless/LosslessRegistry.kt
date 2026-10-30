@@ -1,6 +1,9 @@
 package io.github.unidentified24.spock.lossless
 
 import android.util.Log
+import kotlinx.coroutines.*
+import io.github.unidentified24.spock.playback.PlaybackBackoff
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -45,7 +48,14 @@ internal object LosslessRegistry {
     private val AAD = "spotiflac|community|url|v1".toByteArray()
 
     // Known-good defaults (used until/if the registry refresh succeeds).
-    private val DEFAULT_TIDAL = listOf("https://tidal.anandserver.cfd")
+    private val DEFAULT_TIDAL = listOf("https://monochrome-api.samidy.com","https://hifi-api-bffw.onrender.com","https://tidal.anandserver.cfd")
+    private val health=ConcurrentHashMap<String,PlaybackBackoff>()
+    fun ready(url:String)=health[url]?.available(nowMs())!=false
+    fun failed(url:String){health.getOrPut(url){PlaybackBackoff(1,5*60*1000L)}.failure(nowMs())}
+    fun succeeded(url:String){health[url]?.success()}
+    @Volatile private var liveEndpoints:List<String> = emptyList()
+    private val refreshScope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+    private val fetching=java.util.concurrent.atomic.AtomicBoolean(false)
     private val DEFAULT_AMAZON = listOf("https://amazon.anandserver.cfd")
 
     private const val CACHE_TTL_MS = 30 * 60 * 1000L
@@ -55,7 +65,7 @@ internal object LosslessRegistry {
     @Volatile private var failedAt = 0L
 
     /** Current Tidal community endpoints, freshest first, default appended. */
-    fun tidalEndpoints(): List<String> = endpoints("tidal", "stream", DEFAULT_TIDAL)
+    fun tidalEndpoints(): List<String> = (liveEndpoints+endpoints("tidal", "stream", DEFAULT_TIDAL)).distinct().filter(::ready).take(4)
 
     /** Current Amazon community endpoints (self-resolve by Spotify id). */
     fun amazonEndpoints(): List<String> {
@@ -72,15 +82,36 @@ internal object LosslessRegistry {
         return (fromReg + default).map { it.trimEnd('/') }.distinct()
     }
 
-    private fun registry(): JSONObject? {
+    private fun registry():JSONObject? {
+        val now=nowMs()
+        if(now-cachedAt>=CACHE_TTL_MS && now-failedAt>=FAILURE_RETRY_MS && fetching.compareAndSet(false,true))refreshScope.launch {
+            val owner=io.github.unidentified24.spock.playback.LookupConnections()
+            try{withContext(owner){
+                refreshRegistry()
+                // Only publisher-verified playable entries are used, never the unverified candidate list.
+                val conn=(URL("https://raw.githubusercontent.com/kipavy/spotube-plugin-lossless-sources/main/sources.json").openConnection() as HttpURLConnection)
+                io.github.unidentified24.spock.playback.LookupConnections.track(conn)
+                val json=try{conn.connectTimeout=3000;conn.readTimeout=3000;JSONObject(conn.inputStream.bufferedReader().use{it.readText()})}finally{conn.disconnect()}
+                val sources=json.optJSONArray("sources")
+                liveEndpoints=if(sources==null)emptyList() else (0 until sources.length()).mapNotNull {i->
+                    val item=sources.optJSONObject(i) ?: return@mapNotNull null
+                    val base=item.optString("base").trimEnd('/')
+                    base.takeIf{item.optString("type")=="hifi-api" && it.startsWith("https://") && java.net.URI(it).let{u->!u.host.isNullOrBlank() && u.userInfo==null && u.query==null && u.fragment==null && (u.path.isNullOrBlank()||u.path=="/")}}
+                }.take(8)
+            }}catch(_:Exception){failedAt=nowMs()}finally{owner.close();fetching.set(false)}
+        }
+        return cached
+    }
+
+    private fun refreshRegistry(): JSONObject? {
         val now = nowMs()
         cached?.let { if (now - cachedAt < CACHE_TTL_MS) return it }
         if (now - failedAt < FAILURE_RETRY_MS) return cached
         return runCatching {
             val conn = (URL("$GIST_URL?t=$now").openConnection() as HttpURLConnection).also { io.github.unidentified24.spock.playback.LookupConnections.track(it) }
             val text = try {
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
                 conn.setRequestProperty("User-Agent", "SpotiFLAC-Agent")
                 if (conn.responseCode !in 200..299) throw java.io.IOException("HTTP ${conn.responseCode}")
                 conn.inputStream.bufferedReader().use { it.readText() }

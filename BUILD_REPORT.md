@@ -1,40 +1,50 @@
-# Spock 2.4 — Spotify-first playback and prepared native handoff
+# Spock 2.5 — first-ready playback and public SoundCloud
 
-Package: `io.github.unidentified24.spock`. App/interface version: 2.4. Version code: 24.
+Package `io.github.unidentified24.spock`; app/interface 2.5, version code 25. Stable release signing identity retained. Live release publishing remains deferred.
 
-## Behavior
+## Playback changes
 
-- A selected Spotify catalog track first uses Spotify's own protected web playback, reusing Spock's existing login cookie. Local files and saved downloads retain immediate native/offline playback.
-- Spock retains its interface, account connection, navigation and queue. The browser is a playback engine only. No SpotiDuck login UI, interface, styles, icons, ad filters or full wrapper scripts are included. The independently written bridge uses desktop browser identity, scoped early initialization and the existing authenticated page. Protected audio remains handled by Spotify and Android.
-- The player's normal status uses Spock branding rather than provider/codec names. Device names in supported Spotify browser-registration fields are changed to Spock. Spotify's eventual device label is server-controlled and still needs live-account verification. Internal source/quality metadata is preserved for routing; changing a label does not change the audio codec.
-- While a track plays, enabled YouTube, Deezer and lossless providers resolve the next queue item concurrently. Candidates must prepare buffered native audio and pass duration checks. A separate paused, muted player retains the best prepared candidate. FLAC is preferred, with higher advertised bit depth breaking ties; MP3 320 and Opus follow. Equal-ranked candidates retain the first result. This is a selection policy, not a claim about subjective audio quality or the universally fastest server.
-- At two seconds remaining, Spock locks the next track's route. If native audio is not ready, the existing Spotify browser session is retained for the next song. Late candidates cannot override that decision. The next song is not started two seconds early, and the current song is not interrupted for a quality upgrade.
-- At the boundary, a prepared native player is promoted directly. Browser playback is stopped and acknowledged first. A browser that cannot acknowledge stopping is destroyed before native playback starts. Native preparation never plays audibly. Stale play attempts, cancelled provider requests and obsolete queue preparations are rejected.
-- Track selections use generation checks, not just song-title equality. Queue changes and seeking invalidate preparation. Pause, repeat, manual next/previous and automatic queue advancement remain separate. Natural completion is detected outside the UI. Failures stop on the selected track with recovery controls rather than cycling through the queue.
-- Browser startup is bounded (5 seconds for an initialized compatible page; up to 14 seconds for cold startup). Native recovery resolves concurrently during that wait. Browser playback must show advancing time for the selected track; a Pause button or DRM-capability response alone is insufficient. A confirmed browser stream with ten seconds of playing/buffering without progress gets one native recovery attempt at its saved position.
-- The browser stays warm between requests rather than reloading for every track when its command path is available. Unsupported document-start scripting, unavailable protected playback, missing login, incompatible accounts and failed browser starts fall back to enabled native sources.
-- Preparation is bounded to one transient native preparation at a time, without taking audio focus. Queued short-lived sources are refreshed near the boundary when necessary. Lossless participation follows the selected network quality; Deezer resolution is capped by the same setting and account entitlement.
-- Connected music exposes Spock instant start, enabled by default. Turning it off retains the native-only playback path. Hybrid mode uses song-boundary handoffs; the existing crossfade path is used in native-only mode. Turning next-track preparation off prevents background native preparation.
+The old 5–14 second browser preference held back buffered native audio. Both engines now compete: native must buffer and pass duration checks; Spotify must confirm advancing playback of the requested track. A cancelled losing browser attempt is stopped/acknowledged before native audio starts. Two completed browser failures temporarily back off further browser attempts. Local/downloaded files bypass the browser.
 
-## Verification
+Remote lookup previously prepared a probe, released it and prepared another player. The buffered winner is now retained and promoted. Two concurrent native preparations replace one serialized preparation; obsolete players are released on cancellation. Track generations, connection ownership, stop-on-failure, recording matching and preview rejection are retained. Next-track quality preparation is still limited to one upcoming queue item and manual selection can reuse it. Existing queue timing, metadata, audio focus and restored position are preserved.
 
-- Release assembly and package signing are checked for this delivery; the generated delivery report adds the exact APK hash and test results.
-- 91 JVM unit tests: 83 app, 6 streaming, 2 Spotify. New tests exercise deadline locking, late results, reordered queues, same-track reselection, first/stale browser positions, pause near the end, natural completion and background quality selection/cancellation.
-- Eleven Node checks execute the actual shipped JavaScript in an isolated browser fixture. They cover origin scoping, desktop identity, inactive audio blocking, Spock registration naming, unrelated requests, playback state, stop acknowledgement, stale commands, resume generations, song completion and ignoring decorative-video completion. CI runs these alongside Android build/unit checks.
-- The signed Android build was exercised in a temporary Android API 37 emulator. Generated 20-second local tracks A and B were placed outside Spock's Music folder. With Wi-Fi and mobile data disabled, A played, automatic playback advanced to B, and the queue stopped at its end without an app crash. Final-build verification is recorded separately with the delivery artifacts.
+Wi-Fi buffering: foreground 20–60 seconds with a 16 MiB target, next candidate capped at 8 seconds/2 MiB. Cellular: 10–25 seconds, 4 MiB target, next candidate 3 seconds/512 KiB. Buffer limits are targets; one in-flight allocation/segment may overshoot. At most two candidates prepare concurrently. YouTube range chunks are 4 MiB on Wi-Fi / 2 MiB cellular. Startup requires 350/500 ms; rebuffer thresholds are 1.2/1.5 seconds. This trades modest read-ahead for fewer stalls, not unlimited full-track prefetch.
 
-## Validation limits
+## Sources
 
-The emulator has no signed-in Spotify, Deezer or YouTube account. Actual Spotify playback, Connect branding, account restrictions, browser-to-native transitions, screen-off protected audio and a long multi-track listening session remain unverified on the user's phone. Browser fixture tests validate our bridge logic, not Spotify's private server protocol. Spotify page structure or protocol changes can require maintenance.
+SoundCloud uses the bundled NewPipe extractor's public track search and stream handling. No private server, personal API key or new account is required. Title, artist and duration must match; unexpected covers/remixes/other editions are rejected. Cached matches avoid repeat search. HLS and progressive audio are supported; only progressive audio is offered to the existing validated offline download fallback. HLS manifests are never stored as songs. Song options link to the matched public page.
 
-The two-second point is a routing decision, not a guarantee that Spotify has already buffered the next recording. The browser keeps its session warm but does not play the next track underneath the current song. DRM, server and network startup can still create a gap. If every enabled provider is unavailable, playback cannot be guaranteed.
+YouTube native client fallbacks now precede web-token work so token generation cannot consume the fallback budget first. Concurrent matching callers share a bounded search lock and recheck the cache. Extractor sockets/calls have deadlines and remain associated with their cancelling lookup.
 
-Local release lint/annotation extraction are excluded in this build environment. GitHub performs the ordinary debug assembly, JVM tests and JavaScript checks. No live release is published: automatic APK distribution remains deferred as previously requested.
+FLAC adds an independent modern Monochrome direct-file adapter, two additional public HiFi candidates and automatic retrieval of a verified playable-source list. Legacy registry refresh runs in the background, never synchronously on the UI/first resolve path. Hosts failing requests back off for five minutes, and small endpoint batches compete. Search success alone is not a playback success: the winning native player must still prepare. Bit depth is not invented for the modern direct-file service.
 
-The offline/download safeguards, local discovery, Collection fixes, themes and five player presentations from 2.3 are retained. Signing keys, passwords and private backups remain excluded from source archives and GitHub.
+Live probes found several old FLAC hosts no longer resolving, one returning 401, and candidate servers with working search but rejected streams. The verified public registry currently reported zero playable sources. Adding dead mirrors cannot improve reliability; the new handling skips recent outages and allows other buffered providers to win. No newly working FLAC server is claimed.
 
-## Technical references
+## Responsiveness
 
-- Android WebView document-start scripting: https://developer.android.com/reference/androidx/webkit/WebViewCompat
-- Android Media3 preparation/preloading: https://developer.android.com/media/media3/exoplayer/preloading-media/preloadmanager
-- Reference project behavior/credits: https://github.com/23fpsz/SpotiDuck-Releases
+The hidden browser is created only when needed, after a brief opportunity for cached/native audio to win. Idle browser evaluation is suppressed once capability is known. Stop acknowledgement is bounded at 350 ms and destroys an unresponsive browser before native playback. Static artwork no longer runs animation polling; visualizer updates are capped at 30 fps. Diagnostics record selection, buffering and first-audio timing with millisecond precision, without account data, URLs or tokens.
+
+## Verification and limits
+
+A live public SoundCloud probe using the bundled extractor found TheFatRat's Unity upload, resolved HLS and retrieved an audio/mp4 segment (HTTP 206). Cold search to media segment took about 3.5 seconds on the development connection. This checks a real stream, not every catalog recording or Android decoder behavior. Timing varies by network/provider.
+
+The delivery report records final build, unit/JavaScript checks and emulator results. Regression tests cover immediate native victory over a 14-second browser attempt, loser cancellation, outage recovery, buffering bounds and SoundCloud recording matching, alongside existing playback/offline tests.
+
+No signed-in Spotify/Deezer account is available in the test emulator. Authenticated Spotify starts, browser-to-native handoff, device branding and a long phone listening session still require real-account/device validation. No promise that every song or community endpoint works is made. Existing local/offline safeguards, themes and player presentations are retained.
+
+Local release lint/annotation extraction are excluded under this build environment's restrictions; GitHub runs ordinary debug assembly and unit checks. Signing files and private backups are excluded from source and GitHub.
+
+## Final local verification
+
+Signed release assembly succeeded. 98 JVM tests passed (90 app, 6 streaming, 2 Spotify); 11 checks execute the shipped browser bridge JavaScript. A new test invokes Media3's concrete track-selection/startup callbacks and verifies the preparation cap opens after promotion. This was added after the emulator exposed recursive default-interface callbacks in an intermediate buffering implementation; that intermediate APK was not delivered.
+
+The final signed APK was installed in a temporary Android API 37 emulator. With Wi-Fi/mobile data disabled, generated WAV tracks in the shared Download folder were discovered and played; the queue advanced automatically from A to B with B fully buffered. A was then saved through the Download action, appeared in Offline and played after app restart with its original shared-folder file removed. The crash buffer remained empty after these checks. Collection/local/download navigation opened successfully. These generated-file checks do not verify authenticated remote downloads or every media format.
+
+Additional live FLAC probes: both new HiFi candidates returned successful search responses followed by HTTP 403 for the track request; the modern Monochrome search timed out. The adapter and outage handling are implemented, but no new playable FLAC source was verified. SoundCloud's public extractor/media-segment probe succeeded as described above; signed-in remote playback on the user's phone remains unverified. No changes were copied back into Documents/Spock for this delivery, per the user's updated preference.
+
+## References
+
+- https://github.com/TeamNewPipe/NewPipeExtractor/tree/v0.26.5/extractor/src/main/java/org/schabi/newpipe/extractor/services/soundcloud
+- https://github.com/kipavy/spotube-plugin-lossless-sources
+- https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl.Builder
+- https://developer.android.com/develop/ui/compose/performance/phases

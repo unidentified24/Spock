@@ -23,7 +23,7 @@ enum class PlayerView(val label:String){ARTWORK("Artwork"),DISC("Record"),WAVES(
     var view by remember {mutableStateOf(PlayerView.entries.firstOrNull{it.name==context.getSharedPreferences("appearance",0).getString("player_view",null)} ?: PlayerView.ARTWORK)}
     var expanded by remember {mutableStateOf(false)}
     var audible by remember{mutableStateOf(false)}
-    LaunchedEffect(playing){audible=false;if(playing)while(isActive){audible=io.github.unidentified24.spock.di.SongPlayer.isPlaying();kotlinx.coroutines.delay(500)}}
+    LaunchedEffect(playing,view){audible=false;if(playing && view!=PlayerView.ARTWORK)while(isActive){audible=io.github.unidentified24.spock.di.SongPlayer.isPlaying();kotlinx.coroutines.delay(500)}}
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
             Text("PLAYER VIEW",color=TextMuted,style=MaterialTheme.typography.labelSmall)
@@ -45,7 +45,7 @@ enum class PlayerView(val label:String){ARTWORK("Artwork"),DISC("Record"),WAVES(
 @Composable private fun AmbientPlayer(view:PlayerView,title:String,playing:Boolean) {
     var seconds by remember {mutableFloatStateOf(0f)}
     LaunchedEffect(playing) {
-        if(playing){var last=0L;while(isActive){withFrameNanos{now->if(last!=0L)seconds=(seconds+(now-last)/1_000_000_000f)%3600f;last=now}}}
+        if(playing){var last=0L;while(isActive){withFrameNanos{now->if(last==0L)last=now else if(now-last>=33_000_000L){seconds=(seconds+(now-last)/1_000_000_000f)%3600f;last=now}}}}
     }
     val trackHue=(title.hashCode().toLong().and(0x7fffffffL)%360).toFloat()
     val trackColor=Color.hsv(trackHue,.42f,.95f)

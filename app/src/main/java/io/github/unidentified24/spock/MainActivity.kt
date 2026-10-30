@@ -91,13 +91,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Experimental Spotify web-player engine: attach its hidden WebView AFTER
-        // setContent so the Compose content view doesn't replace/orphan it (an
-        // orphaned WebView gets a 0×0 viewport and Spotify won't render/navigate).
-        if (SongPlayer.webPlayerEnabled && io.github.unidentified24.spock.data.preferences.isWebPlaybackEnabled(this) &&
-            io.github.unidentified24.spock.data.api.SpotifySession.spDc(this).isNotBlank()) {
-            io.github.unidentified24.spock.di.SpotifyWebPlayer.attach(this)
-        }
+        // The browser is attached on demand by browserHost, after Compose owns its view.
     }
 
     override fun onStart(){super.onStart();if(intent?.action==android.content.Intent.ACTION_VIEW){val pending=intent;setIntent(android.content.Intent());openAudio(pending)}}

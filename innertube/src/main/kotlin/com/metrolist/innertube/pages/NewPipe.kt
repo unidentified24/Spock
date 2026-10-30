@@ -31,6 +31,9 @@ class NewPipeDownloaderImpl(
     private val client =
         OkHttpClient
             .Builder()
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
             .proxy(proxy)
             .proxyAuthenticator { _, response ->
                 proxyAuth?.let { auth ->
