@@ -1,5 +1,10 @@
 package io.github.unidentified24.spock
 
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import io.github.unidentified24.spock.data.preferences.toSong
 import android.content.ComponentName
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -25,6 +30,22 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @javax.inject.Inject lateinit var songState:io.github.unidentified24.spock.di.CurrentSongState
+    private fun openAudio(incoming:android.content.Intent?) {
+        if(incoming?.action!=android.content.Intent.ACTION_VIEW)return
+        val uri=incoming.data?.takeIf{it.scheme=="content"} ?: return
+        lifecycleScope.launch {
+            val tracks=try {withContext(Dispatchers.IO){io.github.unidentified24.spock.data.local.LocalImport.importFiles(this@MainActivity,listOf(uri))}}
+                catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+                catch(error:Exception){android.widget.Toast.makeText(this@MainActivity,"Couldn't open this audio file. Choose it again from Local music.",android.widget.Toast.LENGTH_LONG).show();return@launch}
+            val track=tracks.firstOrNull() ?: return@launch
+            io.github.unidentified24.spock.data.preferences.addLocalTracks(this@MainActivity,tracks)
+            val song=track.toSong()
+            songState.updateQueue(listOf(song));songState.updateSongState(song.coverUri,song.title,song.singer,true,song.id,0,song.album)
+            SongPlayer.playSong(song.url,this@MainActivity)
+        }
+    }
+    override fun onNewIntent(incoming:android.content.Intent){super.onNewIntent(incoming);setIntent(android.content.Intent());openAudio(incoming)}
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
     private val notificationPermission =
@@ -75,6 +96,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart(){super.onStart();if(intent?.action==android.content.Intent.ACTION_VIEW){val pending=intent;setIntent(android.content.Intent());openAudio(pending)}}
     override fun onDestroy() {
         super.onDestroy()
         controllerFuture?.let { MediaController.releaseFuture(it) }

@@ -12,6 +12,7 @@ fun SpockTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         val saved = context.getSharedPreferences("appearance", 0).getString("theme", null)
+        currentLayout=SpockLayout.entries.firstOrNull{it.name==context.getSharedPreferences("appearance",0).getString("layout",null)} ?: SpockLayout.STUDIO
         currentLook = SpockLook.entries.firstOrNull { it.name == saved } ?: SpockLook.EMBER
     }
     MaterialTheme(

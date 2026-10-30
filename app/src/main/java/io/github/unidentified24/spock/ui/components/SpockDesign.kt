@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.NavController
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bumptech.glide.integration.compose.*
@@ -30,7 +31,7 @@ import io.github.unidentified24.spock.ui.navigation.Routes
 import io.github.unidentified24.spock.ui.theme.*
 import io.github.unidentified24.spock.ui.viewmodel.PlayerViewModel
 
-val StudioShape = RoundedCornerShape(20.dp)
+val StudioShape get() = RoundedCornerShape(if(currentLayout==SpockLayout.COMPACT)12.dp else 20.dp)
 
 @Composable
 fun SpockMark(modifier: Modifier = Modifier) {
@@ -48,9 +49,11 @@ fun StudioIcon(icon: ImageVector, label: String, modifier: Modifier = Modifier, 
 @OptIn(ExperimentalGlideComposeApi::class)
 @Composable
 fun AccountButton(nav: NavController) {
+    val entry by nav.currentBackStackEntryAsState()
+    if(entry?.destination?.route==Routes.Account.route || entry?.destination?.route==Routes.Connections.route || entry?.destination?.route?.startsWith(Routes.Settings.route)==true)return
     val context=LocalContext.current
     LaunchedEffect(Unit) { ProfileCache.ensure(context) }
-    Row(Modifier.clip(RoundedCornerShape(16.dp)).background(GridBackground).clickable { nav.navigate(Routes.Account.route) }
+    Row(Modifier.clip(RoundedCornerShape(16.dp)).background(GridBackground).clickable { nav.navigate(Routes.Account.route){launchSingleTop=true} }
         .padding(start=8.dp,end=12.dp,top=8.dp,bottom=8.dp), verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         val url=ProfileCache.imageUrl
@@ -63,7 +66,7 @@ fun AccountButton(nav: NavController) {
 
 @Composable
 fun StudioHeader(nav: NavController, title: String, eyebrow: String = "SPOCK", back: Boolean = false) {
-    Column(Modifier.fillMaxWidth().padding(20.dp,12.dp,20.dp,18.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=if(currentLayout==SpockLayout.COMPACT)8.dp else 12.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
             if(back) StudioIcon(Icons.AutoMirrored.Filled.ArrowBack,"Back") { nav.navigateUp() }
             else Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -71,8 +74,8 @@ fun StudioHeader(nav: NavController, title: String, eyebrow: String = "SPOCK", b
             }
             AccountButton(nav)
         }
-        Spacer(Modifier.height(22.dp))
-        Text(title,style=MaterialTheme.typography.displaySmall,color=Color.White,maxLines=3,overflow=TextOverflow.Ellipsis)
+        Spacer(Modifier.height(if(currentLayout==SpockLayout.COMPACT)10.dp else 22.dp))
+        Text(title,style=if(currentLayout==SpockLayout.COMPACT)MaterialTheme.typography.headlineMedium else MaterialTheme.typography.displaySmall,color=Color.White,maxLines=3,overflow=TextOverflow.Ellipsis)
     }
 }
 
@@ -86,7 +89,7 @@ fun StudioSection(title: String, caption: String? = null) {
 
 @Composable
 fun StudioCard(modifier: Modifier=Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.clip(StudioShape).background(GridBackground).border(1.dp,OutlineSubtle,StudioShape).padding(18.dp),
+    Column(modifier.clip(StudioShape).background(GridBackground).border(1.dp,OutlineSubtle,StudioShape).padding(if(currentLayout==SpockLayout.COMPACT)12.dp else 18.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
 }
 

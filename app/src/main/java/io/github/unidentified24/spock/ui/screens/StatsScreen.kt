@@ -73,7 +73,7 @@ fun AccountScreen(navController:NavController) {
             Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 StudioAction("Settings","Sound, appearance & updates",Icons.Default.Settings) {navController.navigate(Routes.Settings.route)}
                 StudioAction("Listening history","Your recent rotation",Icons.Default.History) {navController.navigate(Routes.History.route)}
-                StudioAction("Connected music","YouTube, Deezer & lossless setup",Icons.Default.GraphicEq) {navController.navigate(Routes.Settings.route+"?section=sources")}
+                StudioAction("Connected music","YouTube, Deezer & lossless setup",Icons.Default.GraphicEq) {navController.navigate(Routes.Connections.route)}
             }
         }
         item {StudioSection("Made for your music","Stats count playback on this device. Pauses and buffering don't add listening time.")}

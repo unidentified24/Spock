@@ -32,7 +32,7 @@ import kotlinx.coroutines.delay
 fun LibraryScreen(navController:NavController) {
     val vm:LibraryViewModel=hiltViewModel(); val response by vm.entries.collectAsState();val artists by vm.followedArtists.collectAsState()
     var query by rememberSaveableStudio();var filter by remember { mutableIntStateOf(0) }
-    val entries=(response as? Response.Success)?.data.orEmpty()
+    val entries=CollectionIdentity.entries((response as? Response.Success)?.data.orEmpty()).filter{it.spotifyId !in setOf("liked-songs","downloaded-offline")}
     val filtered=remember(entries,query,filter) { entries.filter { (filter==0 || it.isPlaylist==(filter==1)) && (it.name.contains(query,true)||it.subtitle.contains(query,true)) } }
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
         item { StudioHeader(navController,"Your collection.") }
@@ -43,13 +43,14 @@ fun LibraryScreen(navController:NavController) {
                     Box(Modifier.weight(1f)) { StudioAction("Offline","Downloads",Icons.Default.Download) { navController.navigate(Routes.Downloads.route) } }
                     Box(Modifier.weight(1f)) { StudioAction("On device","Local music",Icons.Default.FolderOpen) { navController.navigate(Routes.LocalFiles.route) } }
                 }
+                TextButton(onClick={vm.load()},enabled=response !is Response.Loading){Text("Refresh collection")}
                 OutlinedTextField(query,{query=it},label={Text("Find in your collection")},singleLine=true,shape=StudioShape,modifier=Modifier.fillMaxWidth(),leadingIcon={Icon(Icons.Default.Search,null)})
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     listOf("All","Playlists","Albums","Artists").forEachIndexed { i,label -> StudioChip(label,filter==i) {filter=i} }
                 }
             }
         }
-        if(filter!=3) items(filtered,key={ it.spotifyId+it.name }) { e ->
+        if(filter!=3) itemsIndexed(filtered,key={ i,e -> "collection:$i:${e.spotifyId}" }) { _,e ->
             StudioMediaRow(e.name,e.subtitle,e.coverUri) {
                 when(e.spotifyId) {
                     "liked-songs" -> navController.navigate(Routes.Liked.route)
@@ -58,7 +59,8 @@ fun LibraryScreen(navController:NavController) {
                 }
             }
         }
-        if(filter==3) items(artists.filter {it.name.contains(query,true)},key={it.id}) { a -> StudioMediaRow(a.name,"Following",a.coverUri) { navController.navigate(artistRoute(a.name,a.id)) } }
+        if(filter==3) itemsIndexed(CollectionIdentity.artists(artists).filter {it.name.contains(query,true)},key={i,a->"artist:$i:${a.id}"}) { _,a -> StudioMediaRow(a.name,"Following",a.coverUri) { navController.navigate(artistRoute(a.name,a.id)) } }
+        if(response is Response.Error) item {StudioEmpty("Your online collection couldn't connect","Offline downloads and local music are available above. Reconnect Spotify from Connected music if needed.")}
         if(response is Response.Loading) item { Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center) {CircularProgressIndicator()} }
         item { Spacer(Modifier.height(10.dp)) }
     }

@@ -34,19 +34,21 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     val context=LocalContext.current
     var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"about"->3;else->0})}
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
-        item {StudioHeader(navController,"Make it yours.",back=true)}
+        item {StudioHeader(navController,"Settings",back=true)}
         item {Row(Modifier.padding(horizontal=20.dp).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("Sources","Sound","Appearance","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
+            listOf("Connections","Sound","Appearance","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
         }}
         item {Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             when(tab) {
-                0 -> SourceSettings(navController)
+                0 -> StudioAction("Connected music","Manage Spotify, YouTube, Deezer and FLAC",Icons.Default.GraphicEq){navController.navigate(Routes.Connections.route)}
                 1 -> SoundSettings()
                 2 -> {
+                    Text("Layout",color=TextMuted,style=MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){SpockLayout.entries.forEach {layout->StudioChip(layout.label,currentLayout==layout){currentLayout=layout;context.getSharedPreferences("appearance",0).edit().putString("layout",layout.name).apply()}}}
                     Text("Choose your atmosphere.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
                     SpockLook.entries.forEach {look->
                         Row(Modifier.fillMaxWidth().clip(StudioShape).background(look.surface).border(1.dp,if(currentLook==look)look.accent else Color.Transparent,StudioShape)
-                            .clickable{currentLook=look;context.getSharedPreferences("appearance",0).edit().putString("theme",look.name).apply()}.padding(18.dp),
+                            .clickable{currentLook=look;if(look==SpockLook.ORIGINAL)currentLayout=SpockLayout.CLASSIC;context.getSharedPreferences("appearance",0).edit().putString("theme",look.name).putString("layout",currentLayout.name).apply()}.padding(18.dp),
                             verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                             Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(look.accent))
                             Text(look.label,color=Color.White,modifier=Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
@@ -62,7 +64,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
                     UpdateSettings()
                     TextButton(onClick={
                         val clipboard=context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Spock playback report",io.github.unidentified24.spock.playback.PlaybackDiagnostics.report()))
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Spock playback report",io.github.unidentified24.spock.playback.PlaybackDiagnostics.report()+"\nLast app error:\n"+context.getSharedPreferences("diagnostics",0).getString("last_crash","None recorded")))
                         android.widget.Toast.makeText(context,"Playback report copied",android.widget.Toast.LENGTH_SHORT).show()
                     }) {Text("Copy playback report")}
                     StudioAction("Source & credits","Independent, open source · GPL v3",Icons.Default.Code){
@@ -75,7 +77,7 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     }
 }
 
-@Composable private fun SourceSettings(nav:NavController) {
+@Composable fun SourceSettings(nav:NavController) {
     val context=LocalContext.current
     var yt by remember {mutableStateOf(isYouTubeSourceEnabled(context))}
     var flac by remember {mutableStateOf(isFlacSourceEnabled(context))}
@@ -141,13 +143,23 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
     }
 }
 @Composable private fun UpdateSettings() {
-    val context=LocalContext.current;val scope=rememberCoroutineScope();var message by remember {mutableStateOf("Check for a signed update")};var busy by remember {mutableStateOf(false)}
+    val context=LocalContext.current;val scope=rememberCoroutineScope()
+    var message by remember{mutableStateOf("Check for a signed update")}
+    var busy by remember{mutableStateOf(false)}
+    var available by remember{mutableStateOf<io.github.unidentified24.spock.data.update.UpdateChecker.UpdateInfo?>(null)}
     Button(onClick={busy=true;scope.launch {
-        runCatching {
-            val info=io.github.unidentified24.spock.data.update.UpdateChecker.check(context)
-            if(info==null)message="No newer published release is available."
-            else {message="Downloading ${info.version}…";io.github.unidentified24.spock.data.update.ApkUpdater.install(context,info);message="Ready for Android to confirm installation."}
-        }.onFailure{message=it.message ?: "Couldn't check for updates"};busy=false
-    }},enabled=!busy,shape=RoundedCornerShape(14.dp)){Text(if(busy)"Checking…" else "Check for updates")}
+        available=io.github.unidentified24.spock.data.update.UpdateChecker.check(context,manual=true)
+        message=io.github.unidentified24.spock.data.update.UpdateChecker.lastMessage
+        busy=false
+    }},enabled=!busy,shape=RoundedCornerShape(14.dp)){Text(if(busy)"Please wait…" else "Check for updates")}
+    available?.let {info->
+        OutlinedButton(onClick={busy=true;scope.launch{
+            message="Downloading and verifying ${info.version}…"
+            runCatching{io.github.unidentified24.spock.data.update.ApkUpdater.install(context,info)}
+                .onSuccess{message="Ready for Android to confirm installation."}
+                .onFailure{message=it.message ?: "Update couldn't be installed."}
+            busy=false
+        }},enabled=!busy){Text("Download and install ${info.version}")}
+    }
     Text(message,color=TextMuted,style=MaterialTheme.typography.bodySmall)
 }

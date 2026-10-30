@@ -1,19 +1,14 @@
-# Spock 2.1 reliability changes
+# Spock 2.2 UI, collection and update fixes
 
-Version 2.1, code 21, interface 2.1. Stable Spock application identity and signing key retained.
+- Collection deduplicates remote/cached identities and uses collision-safe row keys. Library/account/artist fetch errors are handled without terminating the app, preserving offline shortcuts. Four regression tests cover duplicate identities and empty/offline lists. These address identified crash risks; the user's exact device crash has not been reproduced here.
+- Account no longer shows a link back to itself. Settings and Connected Music are separate screens; settings starts with sound, appearance and updates. Connections owns provider setup.
+- Local files can be scanned across the system audio index with permission or selected through file/folder pickers. The app can also open audio content URIs from Android's file manager without requiring files to move into a Spock folder. Temporary provider access may require choosing a file again after the sender's grant expires.
+- Five persistent player views: Artwork, Record, Sound Waves, Spectrum and Orbit. Ambient animations follow actual play/pause/buffering, do not read the microphone and are decorative rather than measured waveforms. Playback is not restarted when changing views.
+- Eight colour themes include Original green, Clean graphite and Rose quartz alongside the existing looks. Studio, Compact and Classic layouts are separate choices; Original green selects Classic navigation. New bold, three-band waveform S logo is a native editable vector.
+- New/returning-user shortcut guidance explains Account, Collection, local audio and Player view without blocking navigation.
+- Update check errors are distinct from an up-to-date result. Manual checks bypass skipped-version preferences. Numeric version validation prevents path traversal; only exact official GitHub release asset paths are accepted. GitHub SHA-256 digests, app package, newer build code and the installed signing certificate are checked before handing off to Android. Polling stops immediately when DownloadManager completes and has a five-minute deadline. Android still requires the user's installation confirmation.
+- A copied local diagnostic report includes at most the last exception class and ten code stack frames, without exception messages, URLs, tokens or account data. No crash data is transmitted automatically.
 
-- Enabled sources now must prepare buffered audio in a muted Media3 player before winning the race. Failed preparation and obvious short previews are rejected while other contenders continue. Winning preparation warms the shared media cache.
-- Music and video searches resolve concurrently with recording checks intact. Known-bad playback URLs are excluded from recovery, and IO recovery waits 350ms instead of 3s.
-- Empty, premature, and preview-like stream ends do not advance the playlist. Five regression tests cover the completion policy. Normal completion and manual next remain available.
-- Next-track preparation now includes short-lived providers close to transition (8 seconds), while ordinary preloading starts within 30 seconds. Expiring URLs and upstream delays can still prevent gapless playback.
-- Startup buffer reduced to 750ms, with 1500ms rebuffer threshold and a 15–45 second target buffer. This trades quicker start against increased sensitivity to poor networks.
-- Local audio can be discovered through Android MediaStore with user-granted audio permission, without restricting files to Spock's folder. File/folder pickers remain available. Local URIs bypass network chunk inspection.
-- Account Settings opens Sound; Connected Music opens Sources. Sources, sound, appearance and about remain separately labelled tabs.
-- New native vector S uses parallel coral/apricot music lines from the old identity. No generated bitmap is required for this revision.
-- Settings → About → Copy playback report provides up to 40 local diagnostic events without URLs, tokens or account details.
+Signed local release build and offline regression tests are performed for this delivery; the final report adds exact test counts, package identity and hash. Local lint/annotation extraction are excluded under environment restrictions. No device installation, visual device run, live storage-provider test, measured frame-time benchmark or signed-in provider playback test was possible here. Smooth playback and the reported Collection crash still need validation on the user's phone. If an error remains, Settings → About → Copy playback report now includes a privacy-minimal crash note.
 
-Validation: signed release assembly; offline tests including the completion guard. Final package, signer, hashes and test count are recorded in the delivered report. Device scanning, live provider playback, decoder preparation and audible transitions cannot be verified on a phone in this restricted environment. These changes do not establish a measured success rate or a guarantee of uninterrupted playback. Android provider permissions, unavailable recordings, expired sessions and network failure remain possible.
-
-Implementation references: [Android shared audio access](https://developer.android.com/training/data-storage/shared/media), [Media3 buffer configuration](https://developer.android.com/reference/androidx/media3/exoplayer/DefaultLoadControl.Builder).
-
-Source changes are in the working copy and GitHub; the original Documents/Spock folder is outside the writable workspace. No live release is published.
+Automatic update delivery requires a public stable GitHub release with the exact signed Spock-version.apk asset. The user is making the repository public; visibility and existing release metadata are verified separately. This work does not publish a new live release.

@@ -1,6 +1,10 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.1 uses app ID `io.github.unidentified24.spock`, version code 21 and interface revision 2.1. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.2 uses app ID `io.github.unidentified24.spock`, version code 22 and interface revision 2.2. Android 8.0+.
+
+## Spock 2.2 polish
+
+Collection identity/error-handling fixes; separate Account, Settings and Connected Music routes; file-manager audio opening alongside device scans and import. Five saved player views: Artwork, Record, Sound Waves, Spectrum, Orbit. Eight colour themes and Studio/Compact/Classic layouts, including Original green and Clean graphite. Improved update diagnostics, checksum verification and safe official-asset validation. See BUILD_REPORT.md for tested scope and device-validation limits.
 
 ## Spock 2.1 reliability update
 

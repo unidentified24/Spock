@@ -23,6 +23,18 @@ class NoRippleInteractionSource : MutableInteractionSource by MutableInteraction
 fun MainBottomNavigation(navController:NavHostController,bottomBarState:MutableState<Boolean>,bottomBarPlayerState:MutableState<Boolean>) {
     val current by navController.currentBackStackEntryAsState()
     if(!bottomBarState.value)return
+    if(currentLayout==SpockLayout.CLASSIC) {
+        Column(Modifier.fillMaxWidth().background(AppBackground).navigationBarsPadding()) {
+            if(bottomBarPlayerState.value)MiniPlayer(navController)
+            NavigationBar(containerColor=AppBackground,windowInsets=WindowInsets(0,0,0,0)) {
+                listOf(Triple(Routes.Home,"Home",Icons.Default.Home),Triple(Routes.Search,"Search",Icons.Default.Search),Triple(Routes.Library,"Library",Icons.Default.LibraryMusic)).forEach{(route,label,icon)->
+                    NavigationBarItem(selected=current?.destination?.route==route.route,onClick={navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id){saveState=true};launchSingleTop=true;restoreState=true}},
+                        icon={Icon(icon,label)},label={Text(label)},colors=NavigationBarItemDefaults.colors(selectedIconColor=AppPalette,indicatorColor=AppBackground))
+                }
+            }
+        }
+        return
+    }
     Column(Modifier.fillMaxWidth().background(AppBackground).navigationBarsPadding()) {
         if(bottomBarPlayerState.value)MiniPlayer(navController)
         Row(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {

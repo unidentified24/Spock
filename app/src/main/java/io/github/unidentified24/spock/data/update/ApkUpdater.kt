@@ -15,20 +15,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 object ApkUpdater {
+    private class InstallPermissionNeeded:IllegalStateException("Allow updates from Spock, then return and tap Download and install again.")
     @Suppress("DEPRECATION")
     suspend fun install(context: Context, info: UpdateChecker.UpdateInfo) = withContext(Dispatchers.IO) {
-        require(info.downloadUrl.startsWith("https://github.com/${UpdateChecker.REPOSITORY}/releases/download/"))
-        val directory = File(context.getExternalFilesDir(null), "updates").apply { mkdirs() }
+        require(ReleaseAssetPolicy.version(info.version)){"Invalid release version"}
+        require(ReleaseAssetPolicy.allows(info.version,info.downloadUrl))
+        val directory = File(context.getExternalFilesDir(null) ?: context.filesDir, "updates").apply { mkdirs() }
         val file = File(directory, "Spock-${info.version}.apk")
-        if (file.exists()) file.delete()
+        val cached=file.isFile && file.length()>0L
         val manager = context.getSystemService(DownloadManager::class.java)
-        val id = manager.enqueue(DownloadManager.Request(Uri.parse(info.downloadUrl))
+        val id = if(cached)-1L else manager.enqueue(DownloadManager.Request(Uri.parse(info.downloadUrl))
             .setTitle("Spock ${info.version}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationUri(Uri.fromFile(file)))
         try {
-            var complete = false
-            repeat(300) {
+            var complete = cached
+            val deadline=android.os.SystemClock.elapsedRealtime()+300000L
+            while(!complete && android.os.SystemClock.elapsedRealtime()<deadline) {
                 if (!complete) {
                     delay(1000)
                     manager.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
@@ -41,6 +44,12 @@ object ApkUpdater {
                 }
             }
             check(complete) { "Download timed out. Try again." }
+            info.sha256?.let {expected ->
+                check(expected.matches(Regex("[a-fA-F0-9]{64}"))){"Invalid release checksum"}
+                val digest=java.security.MessageDigest.getInstance("SHA-256")
+                file.inputStream().use{input->val buffer=ByteArray(32768);while(true){val n=input.read(buffer);if(n<0)break;digest.update(buffer,0,n)}}
+                check(digest.digest().joinToString(""){"%02x".format(it)}.equals(expected,true)){"Update checksum mismatch. Download rejected."}
+            }
             val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
             val candidate = context.packageManager.getPackageArchiveInfo(file.path, flags) ?: error("Invalid APK")
             val installed = context.packageManager.getPackageInfo(context.packageName, flags)
@@ -53,9 +62,9 @@ object ApkUpdater {
             check(signatures(installed).isNotEmpty() && signatures(candidate) == signatures(installed)) { "Update signing certificate does not match." }
             if (!context.packageManager.canRequestPackageInstalls()) {
                 withContext(Dispatchers.Main) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
-                error("Allow updates from Spock, then tap Download and install again.")
+                throw InstallPermissionNeeded()
             }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", file)
             withContext(Dispatchers.Main) {
@@ -63,7 +72,7 @@ object ApkUpdater {
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         } catch (error: Exception) {
-            manager.remove(id)
+            if(error !is InstallPermissionNeeded){if(id>=0)manager.remove(id);file.delete()}
             throw error
         }
     }

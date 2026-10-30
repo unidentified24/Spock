@@ -32,7 +32,7 @@ import kotlinx.coroutines.delay
 @Composable fun LocalFilesScreen(navController:NavController) {
     val context=LocalContext.current;val scope=rememberCoroutineScope()
     var songs by remember {mutableStateOf(getLocalSongs(context))};var importing by remember{mutableStateOf(false)}
-    var note by remember{mutableStateOf("Imported music stays on this device")}
+    var note by remember{mutableStateOf("Play files where they are. Scan your phone, choose files, or open audio from your file manager.")}
     fun accept(uris:List<android.net.Uri>) {
         if(uris.isEmpty())return
         importing=true

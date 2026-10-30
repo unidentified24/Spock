@@ -24,6 +24,7 @@ sealed class Routes(
     object Login : Routes(0, "Login", "login")
     object Settings : Routes(0, "Settings", "settings")
     object History : Routes(0, "History", "history")
+    object Connections : Routes(0,"Connected music","connections")
     object Account : Routes(0, "Account", "account")
     object Stats : Routes(0, "Stats", "stats")
     object DeezerLogin : Routes(0, "DeezerLogin", "deezerlogin")

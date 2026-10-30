@@ -142,9 +142,7 @@ fun PlayerScreen(navController:NavController) {
             }
             StudioIcon(Icons.Default.MoreHoriz,"Track options"){menu=true}
         }
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(GridBackground).padding(18.dp)) {
-            StudioCover(vm.currentSongCoverUri.value,Modifier.fillMaxWidth().aspectRatio(1.12f))
-        }
+        PlayerPresentation(title,vm.currentSongCoverUri.value,playing)
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(vm.currentSongAlbum.value.ifBlank{"NOW PLAYING"}.uppercase(),color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text(title.ifBlank{"Nothing playing yet"},color=Color.White,style=MaterialTheme.typography.headlineLarge,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -184,7 +182,7 @@ fun PlayerScreen(navController:NavController) {
             Text(label,color=TextMuted,style=MaterialTheme.typography.bodySmall)
             if(failed) Row {
                 TextButton(onClick={SongPlayer.invalidateResolvedStream(query);SongPlayer.playSong(query,context)}) { Text("Retry") }
-                TextButton(onClick={navController.navigate(Routes.Settings.route)}) { Text("Sources") }
+                TextButton(onClick={navController.navigate(Routes.Connections.route)}) { Text("Sources") }
             }
         }
     }

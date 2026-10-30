@@ -165,6 +165,10 @@ fun MyNavHost(
             HistoryScreen(navHostController)
         }
 
+        composable(Routes.Connections.route) {
+            LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
+            io.github.unidentified24.spock.ui.screens.ConnectionsScreen(navHostController)
+        }
         composable(Routes.Account.route) {
             LaunchedEffect(playerState) { bottomBarState.value=true;bottomBarPlayerState.value=playerState!="" }
             io.github.unidentified24.spock.ui.screens.AccountScreen(navHostController)

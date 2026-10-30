@@ -12,6 +12,7 @@ import io.github.unidentified24.spock.data.preferences.getCachedLibraryEntries
 import io.github.unidentified24.spock.ui.repository.AppRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,11 @@ class LibraryViewModel @Inject constructor(
         MutableStateFlow(emptyList())
     val followedArtists: StateFlow<List<io.github.unidentified24.spock.data.entity.ArtistsModel>> = _followedArtists
 
+    private val failures=CoroutineExceptionHandler { _,error ->
+        android.util.Log.w("SpockLibrary","Library request failed: ${error.javaClass.simpleName}")
+        if(_entries.value !is Response.Success)_entries.value=Response.Error("Couldn't load online collection")
+        _account.value=Response.Error("Account temporarily unavailable")
+    }
     init {
         // Seed UI with the last-seen library immediately so it's visible offline.
         val cached = getCachedLibraryEntries(context)
@@ -46,7 +52,7 @@ class LibraryViewModel @Inject constructor(
         loadFollowedArtists()
     }
 
-    fun load() = viewModelScope.launch(Dispatchers.IO) {
+    fun load() = viewModelScope.launch(Dispatchers.IO+failures) {
         repository.provideLibrary().collect { response ->
             // Offline: keep the saved library instead of replacing it with a
             // spinner/error, so downloads stay reachable after a restart (#51).
@@ -61,13 +67,13 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private fun loadFollowedArtists() = viewModelScope.launch(Dispatchers.IO) {
+    private fun loadFollowedArtists() = viewModelScope.launch(Dispatchers.IO+failures) {
         val artists = repository.provideFollowedArtists()
         _followedArtists.value = artists
         if (artists.isNotEmpty()) cacheFollowedArtists(context, artists)
     }
 
-    private fun loadAccount() = viewModelScope.launch(Dispatchers.IO) {
+    private fun loadAccount() = viewModelScope.launch(Dispatchers.IO+failures) {
         repository.provideAccount().collect { _account.value = it }
     }
 }

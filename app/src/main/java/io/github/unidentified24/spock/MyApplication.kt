@@ -28,6 +28,14 @@ class MyApplication : Application(){
     override fun onCreate() {
         super.onCreate()
         instance = this
+        val previousCrashHandler=Thread.getDefaultUncaughtExceptionHandler()
+        if(previousCrashHandler!=null)Thread.setDefaultUncaughtExceptionHandler{thread,error->
+            runCatching {
+                val note=error.javaClass.simpleName+"\n"+error.stackTrace.take(10).joinToString("\n"){"${it.className}.${it.methodName}:${it.lineNumber}"}
+                getSharedPreferences("diagnostics",0).edit().putString("last_crash",note).commit()
+            }
+            previousCrashHandler.uncaughtException(thread,error)
+        }
         appScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(250)

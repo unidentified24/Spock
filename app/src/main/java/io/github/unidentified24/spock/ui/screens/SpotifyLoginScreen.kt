@@ -254,12 +254,7 @@ private fun LoginForm(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(72.dp))
-        Icon(
-            painter = painterResource(id = R.drawable.logo),
-            contentDescription = "Spotify",
-            tint = Color(SPOTIFY_GREEN),
-            modifier = Modifier.size(56.dp),
-        )
+        io.github.unidentified24.spock.ui.components.SpockMark(Modifier.size(56.dp))
         Spacer(Modifier.height(28.dp))
         Text(
             "Log in to Spotify",
