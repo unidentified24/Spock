@@ -110,12 +110,11 @@ fun SpotifyLoginScreen(navController: NavController) {
     }
 
     val navigateToHome: () -> Unit = {
-        io.github.unidentified24.spock.di.SpotifyWebPlayer.attach(context as Activity)
+        if(io.github.unidentified24.spock.di.SongPlayer.webPlayerEnabled && io.github.unidentified24.spock.data.preferences.isWebPlaybackEnabled(context))
+            io.github.unidentified24.spock.di.SpotifyWebPlayer.attach(context as Activity)
         // Spotify owns the catalog; playback source is an explicit next-step choice.
         val source = io.github.unidentified24.spock.data.preferences.getPrimaryMusicSource(context)
-        val needsSourceLogin = source == null ||
-            (source == io.github.unidentified24.spock.data.preferences.MusicSource.YOUTUBE_MUSIC &&
-                !io.github.unidentified24.spock.data.preferences.isYoutubeLoggedIn(context))
+        val needsSourceLogin = source == null
         val dest = if (needsSourceLogin) Routes.MusicSource.route else Routes.Home.route
         navController.navigate(dest) {
             popUpTo(Routes.Login.route) { inclusive = true }
@@ -391,8 +390,8 @@ private fun spotifyFieldColors() = OutlinedTextFieldDefaults.colors(
     cursorColor = Color.White,
     focusedBorderColor = Color.White,
     unfocusedBorderColor = Color(0xFF727272),
-    focusedContainerColor = Color(0xFF101014),
-    unfocusedContainerColor = Color(0xFF101014),
+    focusedContainerColor = io.github.unidentified24.spock.ui.theme.AppBackground,
+    unfocusedContainerColor = io.github.unidentified24.spock.ui.theme.AppBackground,
 )
 
 /**

@@ -92,7 +92,8 @@ class PlaybackService : MediaLibraryService() {
         // When stream resolution fails for a track, skip it automatically so the
         // queue keeps moving instead of going silent (issues 2 + 3).
         SongPlayer.onStreamFailed = { _ ->
-            advance(forward = true)
+            SongPlayer.pause()
+            currentSongState.updatePlayingState(false)
         }
         SongPlayer.onTrackEnded = { onTrackEnded() }
         SongPlayer.onPreloadedTrackStarted = { query -> onPreloadedTrackStarted(query) }

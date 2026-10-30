@@ -1,96 +1,44 @@
 package io.github.unidentified24.spock.ui.screens
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.*
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import io.github.unidentified24.spock.data.preferences.MusicSource
-import io.github.unidentified24.spock.data.preferences.isYoutubeLoggedIn
-import io.github.unidentified24.spock.data.preferences.setPrimaryMusicSource
-import io.github.unidentified24.spock.ui.navigation.Routes
+import io.github.unidentified24.spock.data.api.Response
+import io.github.unidentified24.spock.data.entity.*
+import io.github.unidentified24.spock.data.preferences.*
+import io.github.unidentified24.spock.di.SongPlayer
+import io.github.unidentified24.spock.ui.components.*
+import io.github.unidentified24.spock.ui.navigation.*
+import io.github.unidentified24.spock.ui.theme.*
+import io.github.unidentified24.spock.ui.viewmodel.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 
-/** First-run choice made after Spotify supplies the catalog and library. */
-@Composable
-fun MusicSourceScreen(navController: NavController) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Column(
-            modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text("Choose your music source", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Spotify keeps your library and recommendations. Choose where Spock streams the audio.",
-                color = Color(0xFFB9B4C3), fontSize = 14.sp, textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(32.dp))
-
-            SourceCard(
-                title = "YouTube Music",
-                subtitle = "Best coverage. Sign in for explicit and age-restricted songs.",
-                color = Color(0xFFFF0033),
-            ) {
-                if (isYoutubeLoggedIn(context)) {
-                    setPrimaryMusicSource(context, MusicSource.YOUTUBE_MUSIC)
-                    navController.navigate("${Routes.SpotiflacVerify.route}?next=home")
-                } else {
-                    navController.navigate("${Routes.YouTubeLogin.route}?next=spotiflac")
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-            SourceCard(
-                title = "Deezer",
-                subtitle = "Fast exact-track matching. Quality depends on your Deezer plan.",
-                color = Color(0xFFA238FF),
-            ) {
-                navController.navigate("${Routes.DeezerLogin.route}?next=spotiflac")
-            }
-        }
-    }
-}
-
-@Composable
-private fun SourceCard(title: String, subtitle: String, color: Color, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF18171E), RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.background(color, RoundedCornerShape(18.dp)).padding(horizontal = 12.dp, vertical = 9.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text("♫", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-            Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = Color(0xFFB9B4C3), fontSize = 12.sp, lineHeight = 17.sp)
-        }
-        Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null, tint = color)
+@Composable fun MusicSourceScreen(navController:NavController) {
+    val context=LocalContext.current
+    fun home(){setPrimaryMusicSource(context,MusicSource.YOUTUBE_MUSIC);setYouTubeSourceEnabled(context,true);navController.navigate(Routes.Home.route){popUpTo(Routes.MusicSource.route){inclusive=true}}}
+    Column(Modifier.fillMaxSize().background(AppBackground).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),verticalArrangement=Arrangement.spacedBy(22.dp)) {
+        SpockMark(Modifier.size(76.dp))
+        Text("More ways\nto press play.",color=Color.White,style=MaterialTheme.typography.displayMedium)
+        Text("Spotify brings your collection. Connect the audio services you use; Spock plays the first one that's ready.",color=TextMuted,style=MaterialTheme.typography.bodyLarge)
+        StudioAction("YouTube Music",if(isYoutubeLoggedIn(context))"Connected" else "Connect your account for more recordings",Icons.Default.PlayCircle){navController.navigate("${Routes.YouTubeLogin.route}?next=home")}
+        StudioAction("Deezer","Connect your own account",Icons.Default.GraphicEq){navController.navigate("${Routes.DeezerLogin.route}?next=home")}
+        StudioAction("FLAC","Optional experimental setup",Icons.Default.Album){navController.navigate("${Routes.SpotiflacVerify.route}?next=home")}
+        Button(onClick={home()},modifier=Modifier.fillMaxWidth().height(56.dp),shape=RoundedCornerShape(16.dp)){Text("Start listening")}
+        Text("You can manage every source later in Account → Settings. Some recordings need a connected account.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
     }
 }

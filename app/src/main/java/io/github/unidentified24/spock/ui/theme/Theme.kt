@@ -17,6 +17,7 @@ fun SpockTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(primary = AppPalette, secondary = SecondaryPalette,
             background = AppBackground, surface = GridBackground, surfaceVariant = SurfaceVariant,
+            outline=OutlineSubtle,onSurfaceVariant=TextMuted,primaryContainer=SurfaceVariant,
             onPrimary = AppBackground, onSecondary = AppBackground, onBackground = Color.White, onSurface = Color.White),
         typography = Typography,
         shapes = Shapes(small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(22.dp), large = RoundedCornerShape(30.dp)),

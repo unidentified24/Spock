@@ -39,6 +39,15 @@ class LookupConnectionsTest {
         assertTrue(b.isCanceled())
     }
 
+    @Test fun extractorFallbackUsesTheSameIsolatedOwnership() = runBlocking {
+        val owner=LookupConnections();val owned=Call();val unrelated=Call()
+        withContext(owner) {com.metrolist.innertube.ExtractionCalls.track(owned)}
+        com.metrolist.innertube.ExtractionCalls.track(unrelated)
+        owner.close()
+        assertTrue(owned.isCanceled())
+        assertFalse(unrelated.isCanceled())
+    }
+
     @Test fun winnerAbortsABlockingLookupBeforeReturning() = runBlocking {
         withTimeout(3000) {
             val opened = CompletableDeferred<Unit>()

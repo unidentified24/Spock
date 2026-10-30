@@ -64,9 +64,6 @@ fun MyNavHost(
     val startDestination = when {
         SpotifySession.spDc(context).isBlank() -> Routes.Login.route
         io.github.unidentified24.spock.data.preferences.getPrimaryMusicSource(context) == null -> Routes.MusicSource.route
-        io.github.unidentified24.spock.data.preferences.getPrimaryMusicSource(context) ==
-            io.github.unidentified24.spock.data.preferences.MusicSource.YOUTUBE_MUSIC &&
-            !io.github.unidentified24.spock.data.preferences.isYoutubeLoggedIn(context) -> Routes.MusicSource.route
         else -> Routes.Home.route
     }
 
@@ -152,12 +149,12 @@ fun MyNavHost(
             DownloadsScreen(navHostController)
         }
 
-        composable(Routes.Settings.route){
+        composable("${Routes.Settings.route}?section={section}", arguments=listOf(navArgument("section"){defaultValue="sources"})){ entry ->
             LaunchedEffect(playerState) {
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            SettingsScreen(navHostController)
+            SettingsScreen(navHostController,entry.arguments?.getString("section") ?: "sources")
         }
 
         composable(Routes.History.route){
@@ -168,6 +165,10 @@ fun MyNavHost(
             HistoryScreen(navHostController)
         }
 
+        composable(Routes.Account.route) {
+            LaunchedEffect(playerState) { bottomBarState.value=true;bottomBarPlayerState.value=playerState!="" }
+            io.github.unidentified24.spock.ui.screens.AccountScreen(navHostController)
+        }
         composable(Routes.Stats.route){
             LaunchedEffect(playerState) {
                 bottomBarState.value = true

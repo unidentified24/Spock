@@ -4,7 +4,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 
 enum class SpockLook(val label: String, val background: Color, val surface: Color, val accent: Color, val secondary: Color) {
-    EMBER("Ember", Color(0xFF151013), Color(0xFF261C22), Color(0xFFFF917C), Color(0xFFE9C28A)),
+    EMBER("Ember", Color(0xFF121018), Color(0xFF211D2A), Color(0xFFFF917C), Color(0xFFE9C28A)),
+    MIDNIGHT("Amethyst",Color(0xFF15101F),Color(0xFF251C32),Color(0xFFD2ADFF),Color(0xFFF4B5D1)),
     AURORA("Aurora", Color(0xFF101420), Color(0xFF1B2334), Color(0xFFAFA4FF), Color(0xFF91C9EB)),
     PAPER("Sandstone", Color(0xFF211D18), Color(0xFF302A22), Color(0xFFE8C99B), Color(0xFFBCB5A8)),
     OCEAN("Deep sea", Color(0xFF0C171D), Color(0xFF172A33), Color(0xFF81D4DA), Color(0xFF96B9EB)),

@@ -1,269 +1,46 @@
 package io.github.unidentified24.spock.ui.screens
-
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.Icon
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.*
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
-import com.bumptech.glide.integration.compose.GlideImage
-import com.bumptech.glide.integration.compose.placeholder
-import io.github.unidentified24.spock.R
+import io.github.unidentified24.spock.data.api.Response
+import io.github.unidentified24.spock.data.entity.*
+import io.github.unidentified24.spock.data.preferences.*
 import io.github.unidentified24.spock.di.SongPlayer
-import io.github.unidentified24.spock.ui.theme.AppPalette
-import io.github.unidentified24.spock.ui.viewmodel.PlayerViewModel
+import io.github.unidentified24.spock.ui.components.*
+import io.github.unidentified24.spock.ui.navigation.*
+import io.github.unidentified24.spock.ui.theme.*
+import io.github.unidentified24.spock.ui.viewmodel.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 
-/**
- * The "play queue" — the track that's playing now plus everything coming up
- * (Spotify's Queue view). Tapping an upcoming track jumps straight to it;
- * dragging the handle reorders it; swiping a row removes it.
- */
-@OptIn(ExperimentalGlideComposeApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Composable
-fun QueueScreen(navController: NavController) {
-    val playerViewModel: PlayerViewModel = hiltViewModel()
-    val context = LocalContext.current
-    val queue by playerViewModel.queue
-    val currentId = playerViewModel.currentSongId.value
-    val curIdx = queue.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
-    val upcoming = if (queue.isNotEmpty()) queue.drop(curIdx + 1) else emptyList()
-    val current = queue.getOrNull(curIdx)
-
-    // Drag-to-reorder state: which upcoming row is dragged and its live offset.
-    var draggingId by remember { mutableIntStateOf(-1) }
-    var dragOffset by remember { mutableFloatStateOf(0f) }
-    val rowHeightPx = with(LocalDensity.current) { 64.dp.toPx() }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF101014))
-            .statusBarsPadding()
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp, 8.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Close",
-                tint = Color.White,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { navController.navigateUp() }
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Queue", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        }
-
-        LazyColumn(
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-        ) {
-            current?.let {
-                item {
-                    Text(
-                        "Now playing",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(16.dp, 12.dp, 16.dp, 6.dp)
-                    )
-                    QueueRow(song = it, highlight = true, onClick = {}, isDragging = false, dragOffsetY = 0f)
-                }
-            }
-            if (upcoming.isNotEmpty()) {
-                item {
-                    Text(
-                        "Next up",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 6.dp)
-                    )
-                }
-                itemsIndexed(upcoming, key = { _, s -> s.id }) { upIdx, song ->
-                    val isDragging = draggingId == song.id
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = { value ->
-                            if (value != SwipeToDismissBoxValue.Settled) {
-                                playerViewModel.removeFromQueue(song)
-                                true
-                            } else false
-                        }
-                    )
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        backgroundContent = {
-                            Box(
-                                contentAlignment = Alignment.CenterEnd,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color(0xFF7A1F1F))
-                                    .padding(horizontal = 24.dp),
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                            }
-                        },
-                        content = {
-                            QueueRow(
-                                song = song,
-                                highlight = false,
-                                isDragging = isDragging,
-                                dragOffsetY = if (isDragging) dragOffset else 0f,
-                                onClick = {
-                                    val abs = queue.indexOfFirst { it.id == song.id }
-                                    if (abs >= 0) playerViewModel.playSongAt(queue, abs, context)
-                                },
-                                onDragStart = { draggingId = song.id; dragOffset = 0f },
-                                onDragEnd = { draggingId = -1; dragOffset = 0f },
-                                onDragDelta = { dy ->
-                                    dragOffset += dy
-                                    val abs = queue.indexOfFirst { it.id == song.id }
-                                    if (abs >= 0) {
-                                        if (dragOffset > rowHeightPx / 2 && abs < queue.size - 1) {
-                                            playerViewModel.moveQueueItem(abs, abs + 1)
-                                            dragOffset -= rowHeightPx
-                                        } else if (dragOffset < -rowHeightPx / 2 && upIdx > 0) {
-                                            playerViewModel.moveQueueItem(abs, abs - 1)
-                                            dragOffset += rowHeightPx
-                                        }
-                                    }
-                                },
-                            )
-                        }
-                    )
-                }
+@Composable fun QueueScreen(navController:NavController) {
+    val vm:PlayerViewModel=hiltViewModel();val queue=vm.queue.value;val context=LocalContext.current
+    LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=40.dp)) {
+        item{StudioHeader(navController,"In the pipeline.",back=true)}
+        item{StudioSection("Your queue","Move tracks with the arrows, or remove them with ×.")}
+        itemsIndexed(queue,key={i,s->"${s.id}:$i"}) {i,s->
+            StudioTrack(s,i,s.id==vm.currentSongId.value,{vm.playSongAt(queue,i,context)},{})
+            Row(Modifier.fillMaxWidth().padding(horizontal=20.dp),horizontalArrangement=Arrangement.End) {
+                IconButton(enabled=i>0,onClick={vm.moveQueueItem(i,i-1)}){Icon(Icons.Default.KeyboardArrowUp,"Move earlier",tint=TextMuted)}
+                IconButton(enabled=i<queue.lastIndex,onClick={vm.moveQueueItem(i,i+1)}){Icon(Icons.Default.KeyboardArrowDown,"Move later",tint=TextMuted)}
+                IconButton(onClick={vm.removeFromQueue(s)}){Icon(Icons.Default.Close,"Remove from queue",tint=AppPalette)}
             }
         }
-    }
-}
-
-@OptIn(ExperimentalGlideComposeApi::class)
-@Composable
-private fun QueueRow(
-    song: io.github.unidentified24.spock.data.entity.SongsModel,
-    highlight: Boolean,
-    onClick: () -> Unit,
-    isDragging: Boolean = false,
-    dragOffsetY: Float = 0f,
-    onDragStart: () -> Unit = {},
-    onDragEnd: () -> Unit = {},
-    onDragDelta: (Float) -> Unit = {},
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start,
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { translationY = dragOffsetY }
-            .background(Color(if (isDragging) 0xFF1E1E24 else 0xFF121212))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { onClick() }
-            .padding(16.dp, 8.dp)
-    ) {
-        GlideImage(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(4.dp)),
-            model = song.coverUri,
-            contentScale = ContentScale.Crop,
-            loading = placeholder(R.drawable.placeholder),
-            failure = placeholder(R.drawable.placeholder),
-            contentDescription = ""
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.title,
-                color = if (highlight) Color(AppPalette.toArgb()) else Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = song.singer,
-                color = Color.Gray,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (!highlight) {
-            Icon(
-                imageVector = Icons.Default.Menu,
-                contentDescription = "Reorder",
-                tint = Color(0xFFB9B4C3),
-                modifier = Modifier
-                    .size(28.dp)
-                    .pointerInput(song.id) {
-                        detectDragGestures(
-                            onDragStart = { onDragStart() },
-                            onDragEnd = { onDragEnd() },
-                            onDragCancel = { onDragEnd() },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                onDragDelta(dragAmount.y)
-                            },
-                        )
-                    }
-            )
-        }
+        if(queue.isEmpty())item{StudioEmpty("An open queue","Choose a track from Discover or Collection to start listening.")}
     }
 }

@@ -17,6 +17,13 @@ import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.io.IOException
 import java.net.Proxy
 
+/** The application can associate synchronous extractor calls with its current
+ * lookup without making this library depend on the application's player. */
+object ExtractionCalls {
+    @Volatile var register: (okhttp3.Call) -> Unit = {}
+    fun track(call:okhttp3.Call):okhttp3.Call = call.also {register(it)}
+}
+
 class NewPipeDownloaderImpl(
     proxy: Proxy?,
     proxyAuth: String? = null,
@@ -59,7 +66,7 @@ class NewPipeDownloaderImpl(
             }
         }
 
-        val response = client.newCall(requestBuilder.build()).execute()
+        val response = ExtractionCalls.track(client.newCall(requestBuilder.build())).execute()
 
         if (response.code == 429) {
             response.close()

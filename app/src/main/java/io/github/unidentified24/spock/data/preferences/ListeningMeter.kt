@@ -7,7 +7,13 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 
+data class ListeningSample(val date:LocalDate,val songId:Int,val title:String,val artist:String,val ms:Long)
+
 object ListeningMeter {
+    @Synchronized fun samples(context:Context):List<ListeningSample> = rows(context).mapNotNull { row ->
+        runCatching {ListeningSample(LocalDate.parse(row.getString("date")),row.optInt("songId"),row.optString("title"),row.optString("artist"),row.optLong("ms"))}.getOrNull()
+    }
+
     private val clock = PlaybackClock()
     private var ledger: JSONObject? = null
     private var lastFlush = 0L

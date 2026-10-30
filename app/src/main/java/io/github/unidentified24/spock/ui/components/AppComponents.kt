@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.*
+import io.github.unidentified24.spock.ui.theme.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,7 +56,6 @@ import io.github.unidentified24.spock.R
 import io.github.unidentified24.spock.data.preferences.addLikedSongId
 import io.github.unidentified24.spock.data.preferences.isSongLiked
 import io.github.unidentified24.spock.data.preferences.removeLikedSongId
-import io.github.unidentified24.spock.di.Palette
 import io.github.unidentified24.spock.di.SongPlayer
 import io.github.unidentified24.spock.ui.navigation.Routes
 import io.github.unidentified24.spock.ui.theme.AppBackground
@@ -77,238 +79,32 @@ fun Loader() {
 
 }
 
-@OptIn(ExperimentalGlideComposeApi::class)
 @Composable
-fun MiniPlayer(navController: NavHostController) {
-    val miniPlayerViewModel : PlayerViewModel = hiltViewModel()
-    val songTitle = miniPlayerViewModel.currentSongTitle.value
-    val songSinger = miniPlayerViewModel.currentSongSinger.value
-    val songCoverUri = miniPlayerViewModel.currentSongCoverUri.value
-    var songPlayingState = miniPlayerViewModel.currentSongPlayingState.value
-    val songId = miniPlayerViewModel.currentSongId.value
-    val songIndex = miniPlayerViewModel.currentSongIndex.value
-    val songAlbum = miniPlayerViewModel.currentSongAlbum.value
-
-
-    var songProgress by remember { mutableFloatStateOf(0f) }
-
-    songProgress = if (SongPlayer.getDuration() > 0) {
-        SongPlayer.getCurrentPosition().toFloat() / SongPlayer.getDuration().toFloat()
-    } else {
-        0f
-    }
-
-    val currentRoute = navController.currentBackStackEntry?.destination?.route
-
-
-
-    LaunchedEffect(key1  = songPlayingState) {
-            while (songPlayingState) {
-                songProgress = SongPlayer.getDuration().toFloat().let { dur ->
-                    if (dur > 0f) (SongPlayer.getCurrentPosition().toFloat() / dur).coerceIn(0f, 1f) else 0f
-                }
-                delay(300L) // update every .00 second
-
-                if (songProgress > 0f && songProgress >= 1f && currentRoute != Routes.Player.route) {
-                    navController.navigate(Routes.Player.route)
-                    songPlayingState = false
-                }
-        }
-    }
-
-    val context = LocalContext.current
-
-    var darkVibrantColor by remember {
-        mutableStateOf(Color(GridBackground.toArgb()))
-    }
-    Palette().extractFirstColorFromImageUrl(context = context, songCoverUri){ color ->
-        darkVibrantColor = color
-    }
-
-    var isLiked by remember {
-        mutableStateOf(false)
-    }
-    val likeState = miniPlayerViewModel.likeState.value
-    LaunchedEffect(likeState, songId) {
-        isLiked = isSongLiked(context, songId.toString())
-    }
-    val currentTrack = miniPlayerViewModel.queue.value.firstOrNull { it.id == songId }
-    var showSavedIn by remember { mutableStateOf(false) }
-    if (showSavedIn && currentTrack != null) {
-        SavedInSheet(
-            song = currentTrack,
-            context = context,
-            onDismiss = { showSavedIn = false },
-            onLikedChanged = {
-                isLiked = it
-                miniPlayerViewModel.updateLikeState(!likeState)
-            },
-        )
-    }
-
-
-    Column(
-        modifier = Modifier
-
-            .padding(16.dp, 4.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(darkVibrantColor.copy(alpha = 1f))
-            .padding(8.dp, 0.dp)
-            .clipToBounds()
-
-    ) {
-        Row(horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                //.background(Color.Green)
-                .padding(0.dp, 4.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    navController.navigate(Routes.Player.route)
-                }
-        ){
-
-            Row(horizontalArrangement = Arrangement.Start,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .weight(1f)
-                    .clipToBounds()
-            ) {
-                GlideImage(
-                    modifier = Modifier
-                        .padding(0.dp, 0.dp, 10.dp, 0.dp)
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                    ,
-                    model = songCoverUri,
-                    contentScale = ContentScale.Crop,
-                    failure = placeholder(R.drawable.placeholder),
-                    loading = placeholder(R.drawable.placeholder),
-                    contentDescription = ""
-                )
-                Column(
-                    modifier = Modifier
-                        .widthIn(Dp.Unspecified, 200.dp)
-                ) {
-                    Text(text = songTitle, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis )
-                    Text(text = songSinger, color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                }
+fun MiniPlayer(navController:NavHostController) {
+    val vm:PlayerViewModel=hiltViewModel();val playing=vm.currentSongPlayingState.value
+    val context=LocalContext.current
+    Column(Modifier.padding(horizontal=20.dp,vertical=6.dp).fillMaxWidth().clip(StudioShape).background(GridBackground)) {
+        Row(Modifier.fillMaxWidth().clickable{navController.navigate(Routes.Player.route)}.padding(10.dp),
+            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            StudioCover(vm.currentSongCoverUri.value,Modifier.size(44.dp))
+            Column(Modifier.weight(1f)) {
+                Text(vm.currentSongTitle.value,color=Color.White,style=MaterialTheme.typography.titleSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(vm.currentSongSinger.value,color=TextMuted,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
-
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.width(70.dp)
-            ) {
-
-                // Plus = save; green check = already saved. A second tap opens the
-                // "Saved in" sheet (Liked Songs + playlists) instead of unliking.
-                if (isLiked) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        tint = io.github.unidentified24.spock.ui.theme.AppPalette,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) { showSavedIn = true },
-                        contentDescription = "Saved",
-                    )
-                } else {
-                    Icon(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                addLikedSongId(context, songId.toString())
-                                isLiked = true
-                                miniPlayerViewModel.updateLikeState(!likeState)
-                                // Mirror the like to the real Spotify account.
-                                io.github.unidentified24.spock.data.api.SpotifySync.setTrackSaved(
-                                    context, currentTrack?.spotifyTrackId.orEmpty(), true)
-                            },
-                        painter = painterResource(id = R.drawable.ic_add),
-                        tint = Color.White,
-                        contentDescription = "Add",
-                    )
-                }
-
-
-                Icon(
-                    painter = if (songPlayingState)
-                        painterResource(id = R.drawable.ic_playing)
-                    else
-                        painterResource(id = R.drawable.play_svgrepo_com)
-                    ,
-                    contentDescription = "",
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .padding(5.dp, 0.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            if (songPlayingState) {
-                                SongPlayer.pause()
-                                miniPlayerViewModel.updateSongState(
-                                    songCoverUri,
-                                    songTitle,
-                                    songSinger,
-                                    false,
-                                    songId,
-                                    songIndex,
-                                    songAlbum
-                                )
-                            } else {
-                                SongPlayer.play()
-                                miniPlayerViewModel.updateSongState(
-                                    songCoverUri,
-                                    songTitle,
-                                    songSinger,
-                                    true,
-                                    songId,
-                                    songIndex,
-                                    songAlbum
-                                )
-                            }
-                        }
-                )
-            }
-
-
+            IconButton(onClick={
+                if(playing)SongPlayer.pause() else SongPlayer.play()
+                vm.updateSongState(vm.currentSongCoverUri.value,vm.currentSongTitle.value,vm.currentSongSinger.value,!playing,vm.currentSongId.value,vm.currentSongIndex.value,vm.currentSongAlbum.value)
+            }) {Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,if(playing)"Pause" else "Play",tint=AppPalette)}
+            IconButton(onClick={vm.playNextSongs(vm.queue.value,context)}){Icon(Icons.Default.SkipNext,"Next",tint=Color.White)}
         }
-
-
-        CustomSlider(
-            value = songProgress,
-            onValueChange = { newValue ->
-                SongPlayer.seekTo((newValue * SongPlayer.getDuration()).toLong())
-            },
-            valueRange = 0f..1f,
-            steps = 0,
-            modifier = Modifier
-                .fillMaxWidth()
-            ,
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color.White,
-                inactiveTrackColor = Color.Gray
-            )
-        )
+        MiniProgress(vm.currentSongId.value,playing)
     }
-
-
-
 }
-
-
+@Composable private fun MiniProgress(id:Int,playing:Boolean) {
+    var progress by remember(id){mutableFloatStateOf(0f)}
+    LaunchedEffect(id,playing){while(true){val duration=SongPlayer.getDuration();progress=if(duration>0)(SongPlayer.getCurrentPosition().toFloat()/duration).coerceIn(0f,1f)else 0f;delay(if(playing)1000 else 2000)}}
+    LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(2.dp),color=AppPalette,trackColor=SurfaceVariant)
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomSlider(
@@ -323,7 +119,7 @@ fun CustomSlider(
         //contentAlignment = Alignment.BottomEnd,
         modifier = Modifier
             .fillMaxWidth()
-            .height(0.dp)
+            .height(32.dp)
 
     ) {
 
@@ -344,7 +140,6 @@ fun CustomSlider(
         )
     }
 }
-
 
 @Composable
 fun Snackbar(showMessage : String) {

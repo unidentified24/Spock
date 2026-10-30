@@ -17,7 +17,6 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(private val repository: AppRepository)  : ViewModel() {
 
-
     private val _albums : MutableStateFlow<Response<List<AlbumsModel>>> = MutableStateFlow(Response.Loading())
     val albums : StateFlow<Response<List<AlbumsModel>>> = _albums
 
@@ -27,16 +26,15 @@ class HomeViewModel @Inject constructor(private val repository: AppRepository)  
     private val _home : MutableStateFlow<Response<HomeFeedModel>> = MutableStateFlow(Response.Loading())
     val home : StateFlow<Response<HomeFeedModel>> = _home
 
-
     init {
         fetchHome()
-        fetchArtists()
-        fetchAlbums()
+
     }
 
     private fun fetchHome() = viewModelScope.launch(Dispatchers.IO) {
         repository.provideHomeFeed().collect { feed ->
             _home.value = feed
+            if(feed is Response.Error) {fetchArtists();fetchAlbums()}
         }
     }
 
@@ -51,7 +49,5 @@ class HomeViewModel @Inject constructor(private val repository: AppRepository)  
             _artists.value = artist as Response<List<ArtistsModel>>
         }
     }
-
-
 
 }

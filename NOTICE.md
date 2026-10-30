@@ -14,4 +14,6 @@ The inherited project credits:
 
 Retain the original GNU GPL version 3 license in LICENSE, source copyright notices, and third-party license notices. Release workflows attach the matching source to each APK release. The precise intermediate fork URL and inherited asset provenance still need to be documented before claiming a complete provenance review.
 
-Spock now uses Android's system fonts. The bundled extracted Spotify font files were removed from the current source. The earlier development history is stored only in a separate private backup; main now begins with a clean source snapshot. GitHub may retain previously uploaded unreachable objects and cached commit URLs; removal from branch history does not guarantee server-side purging.
+Spock 2.0 uses the bundled Montserrat variable family under the SIL Open Font License; see assets/licenses/Montserrat-OFL.txt (also bundled in APK assets). The bundled extracted Spotify font files were removed from the current source. The earlier development history is stored only in a separate private backup; main now begins with a clean source snapshot. GitHub may retain previously uploaded unreachable objects and cached commit URLs; removal from branch history does not guarantee server-side purging.
+
+The Spock 2.0 interface and ribbon-S logo replace the inherited presentation. The logo was generated for this project with OpenAI image generation; the prompt is saved in assets/brand/README.md. The Spotify, YouTube, Deezer and FLAC integrations remain derived work and keep their upstream notices.

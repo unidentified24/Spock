@@ -39,8 +39,8 @@ object YTPlayerUtils {
 
     private val httpClient = OkHttpClient.Builder()
         .proxy(YouTube.proxy)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
@@ -59,6 +59,11 @@ object YTPlayerUtils {
         IOS_RECENT,
         MOBILE,
     )
+
+    private suspend fun boundedPlayer(videoId:String,playlistId:String?=null,client:YouTubeClient,signatureTimestamp:Int?=null,poToken:String?=null,authenticated:Boolean=false):Result<PlayerResponse> =
+        kotlinx.coroutines.withTimeoutOrNull(4500) {YouTube.player(videoId,playlistId,client,signatureTimestamp,poToken,authenticated)}
+            ?: Result.failure(java.io.IOException("Player endpoint timed out"))
+
     data class PlaybackData(
         val audioConfig: PlayerResponse.PlayerConfig.AudioConfig?,
         val videoDetails: PlayerResponse.VideoDetails?,
@@ -83,10 +88,6 @@ object YTPlayerUtils {
         Timber.tag(TAG).d("playlistId: $playlistId")
         Timber.tag(TAG).d("audioQuality: $audioQuality")
 
-        if (YouTube.visitorData.isNullOrBlank()) {
-            YouTube.visitorData = YouTube.visitorData().getOrNull()
-        }
-
         // Check if this is an uploaded/privately owned track
         val isUploadedTrack = playlistId == "MLPT" || playlistId?.contains("MLPT") == true
         Timber.tag(TAG).d("Content type detection (preliminary):")
@@ -98,8 +99,8 @@ object YTPlayerUtils {
         Timber.tag(TAG).d("Authentication status: ${if (isLoggedIn) "LOGGED_IN" else "ANONYMOUS"}")
 
         // Get signature timestamp (same as before for normal content)
-        val signatureTimestamp = getSignatureTimestampOrNull(videoId)
-        Timber.tag(logTag).d("Signature timestamp: ${signatureTimestamp.timestamp}")
+        val signatureTimestamp by lazy { getSignatureTimestampOrNull(videoId) }
+
 
         // Generate PoToken only for a web client. The native fast path does not
         // use one and must remain anonymous.
@@ -107,7 +108,7 @@ object YTPlayerUtils {
         // Web BotGuard binds its streaming token to VISITOR_DATA. DATASYNC_ID is
         // an account synchronization identifier and produces a token that the
         // googlevideo CDN rejects even though minting itself succeeds.
-        val sessionId = YouTube.visitorData?.takeIf { it.isNotBlank() }
+        var sessionId = YouTube.visitorData?.takeIf { it.isNotBlank() }
         val mainClientNeedsPoToken = MAIN_CLIENT.useWebPoTokens
         if (mainClientNeedsPoToken && sessionId != null) {
             Timber.tag(logTag).d("Generating PoToken for WEB_REMIX with sessionId")
@@ -131,11 +132,11 @@ object YTPlayerUtils {
         // Try WEB_REMIX with signature timestamp and poToken (same as before)
         Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
         var initialResponseClient = MAIN_CLIENT
-        var mainPlayerResponse = YouTube.player(
+        var mainPlayerResponse = boundedPlayer(
             videoId,
             playlistId,
             MAIN_CLIENT,
-            signatureTimestamp.timestamp,
+            if(MAIN_CLIENT.useSignatureTimestamp)signatureTimestamp.timestamp else null,
             poToken?.playerRequestPoToken,
             authenticated = false,
         ).getOrNull()
@@ -143,11 +144,11 @@ object YTPlayerUtils {
             // An obsolete/refused identity can fail at HTTP level before a
             // playability body exists. BitChord walks on instead of aborting.
             for (candidate in STREAM_FALLBACK_CLIENTS) {
-                val response = YouTube.player(
+                val response = boundedPlayer(
                     videoId,
                     playlistId,
                     candidate,
-                    signatureTimestamp.timestamp.takeIf { candidate.useSignatureTimestamp },
+                    if(candidate.useSignatureTimestamp)signatureTimestamp.timestamp else null,
                     authenticated = false,
                 ).getOrNull()
                 if (response != null) {
@@ -186,6 +187,7 @@ object YTPlayerUtils {
             // generation above intentionally skips it. WEB_REMIX does need one:
             // without both its player-request and streaming-data tokens YouTube
             // returns valid-looking signed URLs which the CDN rejects with 403.
+            if(sessionId==null)sessionId=kotlinx.coroutines.withTimeoutOrNull(3000){YouTube.visitorData().getOrNull()}.also{YouTube.visitorData=it}
             if (poToken == null && sessionId != null) {
                 try {
                     Timber.tag(logTag).d("Generating PoToken for restricted WEB_REMIX")
@@ -195,7 +197,7 @@ object YTPlayerUtils {
                     Timber.tag(logTag).e(e, "Restricted WEB_REMIX PoToken generation failed")
                 }
             }
-            val creatorResponse = YouTube.player(
+            val creatorResponse = boundedPlayer(
                 videoId,
                 playlistId,
                 WEB_REMIX,
@@ -276,9 +278,9 @@ object YTPlayerUtils {
                 // Only pass poToken for clients that support it
                 val clientPoToken = if (client.useWebPoTokens) poToken?.playerRequestPoToken else null
                 // Skip signature timestamp for age-restricted (faster), use it for normal content
-                val clientSigTimestamp = if (wasOriginallyAgeRestricted) null else signatureTimestamp.timestamp
+                val clientSigTimestamp = if(client.useSignatureTimestamp && !wasOriginallyAgeRestricted) signatureTimestamp.timestamp else null
                 streamPlayerResponse =
-                    YouTube.player(
+                    boundedPlayer(
                         videoId,
                         playlistId,
                         client,
@@ -417,7 +419,7 @@ object YTPlayerUtils {
                 // Check if this is a privately owned track (uploaded song)
                 val isPrivatelyOwned = streamPlayerResponse.videoDetails?.musicVideoType == "MUSIC_VIDEO_TYPE_PRIVATELY_OWNED_TRACK"
 
-                if (clientIndex == STREAM_FALLBACK_CLIENTS.size - 1 || isPrivatelyOwned) {
+                if (isPrivatelyOwned) {
                     /** skip [validateStatus] for last client or private tracks */
                     if (isPrivatelyOwned) {
                         Timber.tag(logTag).d("Skipping validation for privately owned track: ${currentClient.clientName}")
@@ -438,6 +440,7 @@ object YTPlayerUtils {
                     break
                 } else {
                     Timber.tag(logTag).d("Stream validation failed for client: ${currentClient.clientName}")
+                    streamUrl=null;format=null
                 }
             } else {
                 Timber.tag(logTag).d("Player response status not OK: ${streamPlayerResponse?.playabilityStatus?.status}, reason: ${streamPlayerResponse?.playabilityStatus?.reason}")
@@ -505,7 +508,7 @@ object YTPlayerUtils {
         playlistId: String? = null,
     ): Result<PlayerResponse> {
         Timber.tag(logTag).d("Fetching metadata-only player response for videoId: $videoId using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
-        return YouTube.player(videoId, playlistId, client = WEB_REMIX) // ANDROID_VR does not work with history
+        return boundedPlayer(videoId, playlistId, client = WEB_REMIX) // ANDROID_VR does not work with history
             .onSuccess { Timber.tag(logTag).d("Successfully fetched metadata") }
             .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
     }
@@ -575,7 +578,8 @@ object YTPlayerUtils {
             // Network timeout / reset while HEAD-probing. The stream URL itself may still
             // be fine — let ExoPlayer attempt GET rather than burning a fallback client.
             Timber.tag(logTag).w(e, "Stream URL HEAD probe failed (IO); accepting optimistically")
-            return true
+            io.github.unidentified24.spock.playback.LookupConnections.checkActive()
+            return false
         } catch (e: Exception) {
             Timber.tag(logTag).e(e, "Stream URL validation failed with exception")
             reportException(e)

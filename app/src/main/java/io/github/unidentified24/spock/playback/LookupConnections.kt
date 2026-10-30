@@ -11,6 +11,9 @@ class LookupConnections : ThreadContextElement<LookupConnections?>,
     AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<LookupConnections> {
         private val active = ThreadLocal<LookupConnections?>()
+        init {
+            com.metrolist.innertube.ExtractionCalls.register = { call -> active.get()?.own(call) }
+        }
         fun track(connection: HttpURLConnection) { active.get()?.register(connection) }
         fun current(): LookupConnections? = active.get()
         fun trackCall(call: okhttp3.Call): okhttp3.Call = call.also { active.get()?.own(it) }

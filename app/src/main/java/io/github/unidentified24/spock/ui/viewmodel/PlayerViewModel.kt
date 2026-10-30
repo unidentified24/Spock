@@ -71,21 +71,16 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
         currentSongState.updateQueue(q)
     }
 
-
     val shuffleState = currentSongState.shuffle
     val repeatState = currentSongState.repeat
     val likeState = currentSongState.likeState
-
 
     private val _songs : MutableStateFlow<Response<List<SongsModel>>> = MutableStateFlow(Response.Loading())
     val songs : StateFlow<Response<List<SongsModel>>> = _songs
 
     val playingArtist by mutableStateOf(currentSongSinger.value)
 
-    init {
-        fetchSongs()
-    }
-
+    init { _songs.value = Response.Success(emptyList()) }
 
     //val songsResponse = (songs.value as Response.Success).data
 

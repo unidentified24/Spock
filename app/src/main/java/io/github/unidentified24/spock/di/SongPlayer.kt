@@ -20,6 +20,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import io.github.unidentified24.spock.playback.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -82,6 +84,14 @@ object SongPlayer {
     // "OPUS 141 kbps"), shown next to the source badge.
     @Volatile var currentQuality: String = ""
         private set
+    @Volatile var playbackMessage:String = ""
+        private set
+    @Volatile var playbackFailed:Boolean = false
+        private set
+    private val streamExpiry = java.util.concurrent.ConcurrentHashMap<String,Long>()
+    private val candidateCache = java.util.concurrent.ConcurrentHashMap<String,List<String>>()
+    private var matchPrefetch:kotlinx.coroutines.Job?=null
+    private var matchPrefetchKey:String?=null
     private val qualityCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     // Maps a "title artist" play query -> the track's real Spotify id, so the
     // lossless resolver can be seeded from a play site that only has the query.
@@ -221,6 +231,7 @@ object SongPlayer {
             ?: text.trim().takeIf { it.matches(Regex("""[A-Za-z0-9_-]{11}""")) }
 
     fun invalidateResolvedStream(song: String) {
+        streamExpiry.remove(song)
         streamCache.remove(song)
         sourceCache.remove(song)
         qualityCache.remove(song)
@@ -235,6 +246,8 @@ object SongPlayer {
         val appContext = context.applicationContext
         appCtx = appContext
         currentRequest = song
+        playbackFailed=false
+        playbackMessage="Finding your audio…"
         retriedRequest = null
         preloadedNext = null
         // A manual play (tap / next / prev) supersedes any in-flight crossfade.
@@ -289,9 +302,7 @@ object SongPlayer {
                             appContext, "Couldn't find a playable stream for this track",
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
-                        // Signal failure so the queue can advance past this track
-                        // instead of going silent (issue 3: playlist stalls on bad stream).
-                        onStreamFailed?.invoke(song)
+                        reportStreamFailure(song)
                     }
                     return@launch
                 }
@@ -301,7 +312,8 @@ object SongPlayer {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "playSong failed for query: $song", e)
+                Log.e(TAG, "Playback lookup failed", e)
+                withContext(Dispatchers.Main) {if(currentRequest==song)reportStreamFailure(song)}
             }
         }
     }
@@ -311,6 +323,7 @@ object SongPlayer {
             if (currentRequest != song) return@withContext
             ensurePlayer(appContext)
             player!!.setMediaItem(buildMediaItem(streamUrl, mimeType))
+            playbackMessage="Starting audio…"
             player!!.prepare()
             // Restored session: continue from where the last run stopped.
             if (song == restoreQuery && restorePositionMs > 0) {
@@ -372,23 +385,15 @@ object SongPlayer {
         }
     }
 
-    /** Warm the cache for an upcoming track (e.g. the next/previous queue item). */
-    fun prefetch(song: String, context: Context) {
-        if (song.isBlank() || streamCache.containsKey(song)) return
-        val appContext = context.applicationContext
-        // No point resolving YouTube streams while Spotify web is the engine — it's
-        // wasted network/CPU that competes with the streaming audio (caused stutter).
-        if (webPlaybackActive()) return
-        // Lossless FLAC URLs from the backends are short-lived / single-use. Caching
-        // one now + preloading a partial intro makes playback stop after ~30s when the
-        // continuation hits a stale URL, so resolve those fresh at play time instead.
-        if (losslessStreaming && io.github.unidentified24.spock.data.preferences.currentStreamingQuality(appContext).lossless) return
-        // Deezer resolves a fresh CDN url per play; a YouTube prefetch cached under
-        // the same key would shadow it, so skip prefetch entirely when Deezer is on.
-        if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) return
-        scope.launch {
-            val url = runCatching { resolveStreamUrl(song, appContext) }.getOrNull()
-            if (url != null) cacheIntro(url, appContext)
+    /** Prepare one next-track match, without racing short-lived transport URLs. */
+    fun prefetch(song:String,context:Context) {
+        if(song.isBlank() || song==matchPrefetchKey || candidateCache.containsKey(song+":"+YouTube.SearchFilter.FILTER_SONG) || webPlaybackActive() ||
+            !io.github.unidentified24.spock.data.preferences.isPreloadEnabled(context) ||
+            !io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(context))return
+        matchPrefetch?.cancel();matchPrefetchKey=song
+        matchPrefetch=scope.launch {
+            try { delay(1200);resolveVideoCandidates(song) }
+            finally {if(matchPrefetchKey==song)matchPrefetchKey=null}
         }
     }
 
@@ -514,15 +519,16 @@ object SongPlayer {
             }
             return android.net.Uri.fromFile(java.io.File(path)).toString()
         }
+        if ((streamExpiry[song] ?: 0L) <= System.currentTimeMillis()) invalidateResolvedStream(song)
         streamCache[song]?.let { cachedUrl ->
             // Source choices take effect immediately; never let a URL cached under the
             // previous choice silently keep using that provider.
             val cachedSource = sourceCache[song]
             val sourceStillSelected = when (cachedSource) {
                 "Deezer" -> deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)
-                "YouTube" -> youtubeEnabled && allowYouTube
+                "YouTube" -> youtubeEnabled && allowYouTube && io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(appContext)
                 else -> cachedSource?.startsWith("Lossless") != true ||
-                    (losslessStreaming && io.github.unidentified24.spock.data.preferences.currentStreamingQuality(appContext).lossless)
+                    (losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(appContext) && io.github.unidentified24.spock.data.preferences.currentStreamingQuality(appContext).lossless)
             }
             if (!sourceStillSelected) {
                 invalidateResolvedStream(song)
@@ -570,7 +576,7 @@ object SongPlayer {
                 }
             }
         }
-        if (losslessStreaming && quality.lossless && spotifyId != null) {
+        if (losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(appContext) && quality.lossless && spotifyId != null) {
             lookup {
                 val result = io.github.unidentified24.spock.lossless.LosslessSource.resolve(
                     appContext, spotifyId, losslessTrackInfo(song), losslessHiRes)
@@ -579,10 +585,10 @@ object SongPlayer {
                 }
             }
         }
-        if (youtubeEnabled && allowYouTube) {
+        if (youtubeEnabled && allowYouTube && io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(appContext)) {
             lookup {
                 resolveYtPlayback(song, quality.audioQuality, appContext)?.let {
-                    ResolvedStream(it.streamUrl, "YouTube", ytQualityLabel(it))
+                    ResolvedStream(it.streamUrl, "YouTube", ytQualityLabel(it), (it.streamExpiresInSeconds-30).coerceIn(0,1800))
                 }
             }
         }
@@ -597,13 +603,14 @@ object SongPlayer {
             }
         }
         currentCoroutineContext().ensureActive()
+        streamExpiry[song] = System.currentTimeMillis() + winner.ttlSeconds * 1000L
         streamCache[song] = winner.url
         sourceCache[song] = winner.source
         qualityCache[song] = winner.quality
         return winner.url
     }
 
-    private data class ResolvedStream(val url: String, val source: String, val quality: String)
+    private data class ResolvedStream(val url: String, val source: String, val quality: String, val ttlSeconds:Int=0)
 
     // e.g. "OPUS 141 kbps" from the chosen adaptive format.
     private fun ytQualityLabel(playback: YTPlayerUtils.PlaybackData): String {
@@ -630,6 +637,12 @@ object SongPlayer {
 
     /** Fired (main thread) when a stream can't be resolved for [song], so the caller
      *  can skip to the next track instead of leaving playback silent. */
+    fun reportStreamFailure(song:String) {
+        if(currentRequest!=song)return
+        playbackFailed=true
+        playbackMessage="No playable audio found. Retry or check your sources."
+        onStreamFailed?.invoke(song)
+    }
     @Volatile var onStreamFailed: ((String) -> Unit)? = null
 
     private data class CandidateScore(
@@ -830,7 +843,9 @@ object SongPlayer {
         // When duration is missing, allow strong title+artist/album matches
         // instead of rejecting every possible candidate.
         val hasUnexpectedHardAlternate = hardVersionMarkers(unexpectedAlternates).isNotEmpty()
-        return score >= minScore &&
+        val sameRecording = titleScore >= 0.82 && artistEvidenceScore >= 0.60 &&
+            durationScore?.let {it>=0.94}==true
+        return (score >= minScore || sameRecording) &&
             !hasUnexpectedHardAlternate &&
             titleScore >= 0.45 &&
             (
@@ -870,145 +885,46 @@ object SongPlayer {
         return repaired
     }
 
-    private suspend fun resolveVideoCandidates(
-        query: String,
-        filter: YouTube.SearchFilter = YouTube.SearchFilter.FILTER_SONG,
-    ): List<String> {
-        val searchText = searchTextForPlayback(query)
-        // A raw YouTube videoId is 11 chars with no spaces — accept it directly.
-        if (searchText.length == 11 && !searchText.contains(' ')) return listOf(searchText)
-        val exactMeta = ensureSpotifyMatchMetadata(query)
-        val wantExplicit = explicitRegistry[query]
 
-        suspend fun searchSongs(text: String): List<SongItem> {
-            val firstPage = YouTube.search(text, filter)
-                .onFailure { Log.w(TAG, "resolveVideoId: YouTube search failed for: $text", it) }
-                .getOrNull() ?: return emptyList()
-            val found = firstPage.items.filterIsInstance<SongItem>().toMutableList()
-
-            // The explicit edition is often just below the clean edition. Walk two
-            // continuation pages before accepting that YouTube Music has no match.
-            var continuation = firstPage.continuation
-            repeat(2) {
-                if (wantExplicit != true || found.any { it.explicit } || continuation == null) return@repeat
-                val next = YouTube.searchContinuation(continuation!!).getOrNull() ?: return@repeat
-                found += next.items.filterIsInstance<SongItem>()
-                continuation = next.continuation
-            }
-            return found
+    private suspend fun resolveVideoCandidates(query:String,filter:YouTube.SearchFilter=YouTube.SearchFilter.FILTER_SONG):List<String> {
+        val text=searchTextForPlayback(query)
+        if(text.length==11 && !text.contains(' '))return listOf(text)
+        val cacheKey=query+":"+filter
+        if(candidateCache.size>256)candidateCache.clear()
+        candidateCache[cacheKey]?.let{return it}
+        // Queue metadata is already registered. A redundant Spotify request used to
+        // precede every first play, even when title/artist/duration were available.
+        val meta=metadataRegistry[query] ?: kotlinx.coroutines.withTimeoutOrNull(1500) {ensureSpotifyMatchMetadata(query)}
+        // A true badge is positive evidence. GQL's default false is often an
+        // absent badge, so only a repaired metadata response confirms clean.
+        val explicit=explicitRegistry[query]?.takeIf{it || spotifyMetadataRepaired.contains(query)}
+        fun rank(hits:List<SongItem>):List<String> {
+            if(meta==null)return hits.filter {item ->
+                val combined=normalizedForMatch(item.title+" "+item.artists.joinToString(" "){it.name})
+                val words=normalizedForMatch(text).split(" ").filter {it.length>2}
+                words.isNotEmpty() && words.count {combined.contains(it)} >= (words.size*.75).toInt().coerceAtLeast(1)
+            }.map{it.id}.take(3)
+            return hits.map {ytmusicTransferScore(it,meta,durationRegistry[query] ?: 0)}
+                .filter {it.isAcceptableMatch()}
+                .filter {MatchPolicy.editionAllowed(explicit,it.item.explicit,it.item.title,it.titleScore,it.durationScore)}
+                .sortedWith(compareByDescending<CandidateScore>{explicit==null || it.item.explicit==explicit}.thenByDescending{it.score})
+                .map{it.item.id}.distinct().take(3)
         }
-
-        val searchQueries = buildList {
-            if (wantExplicit == true && !exactMeta?.isrc.isNullOrBlank()) add(exactMeta!!.isrc)
-            add(searchText)
-            if (wantExplicit == true) add("$searchText explicit")
-        }.distinct()
-        val hits = searchQueries.flatMap { searchSongs(it) }.distinctBy { it.id }
-        if (hits.isEmpty()) {
-            Log.w(TAG, "resolveVideoId: no YouTube song results for: $searchText")
-            return emptyList()
+        suspend fun search(term:String):List<SongItem> = kotlinx.coroutines.withTimeoutOrNull(7000) {
+            YouTube.search(term,filter).getOrNull()?.items?.filterIsInstance<SongItem>()
+        }.orEmpty()
+        rank(search(text)).takeIf{it.isNotEmpty()}?.let {candidateCache[cacheKey]=it;return it}
+        // Only broaden after a miss; ISRC is not an indexed identifier in every catalog.
+        val alternatives=buildList {
+            if(!meta?.isrc.isNullOrBlank())add(meta!!.isrc)
+            if(meta!=null)add(meta.title+" "+meta.artist.substringBefore(','))
+        }.distinct().filter{it!=text}.take(2)
+        val extra=kotlinx.coroutines.coroutineScope {
+            alternatives.map{term->async(Dispatchers.IO){search(term)}}.awaitAll().flatten()
         }
-        // YouTube's top hit is NOT always the requested song (worst for
-        // non-English titles). Score every hit against the query — the query is
-        // "title artist1, artist2":
-        //   +2 artist match, +1 title match, +2 duration match.
-        // Duration is the key disambiguator for same-title/different-artist: a
-        // wrong-artist song with the same name almost always has a different
-        // length, so it never ties the real track once duration is in the score.
-        fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
-        val qn = norm(searchText)
-        val wantSec = durationRegistry[query]?.let { it / 1000 }
-        val scored = hits.map { h ->
-            val cleanTitle = norm(h.title.substringBefore('(').substringBefore('['))
-            var s = 0
-            if (cleanTitle.isNotEmpty() && qn.contains(cleanTitle)) s += 1
-            if (h.artists.any { a -> norm(a.name).let { it.isNotEmpty() && qn.contains(it) } }) s += 2
-            // Within ~4s of the Spotify track length → very likely the same recording.
-            val hDur = h.duration
-            if (wantSec != null && hDur != null && kotlin.math.abs(hDur - wantSec) <= 4) s += 2
-            h to s
-        }
-        val transferScored = if (exactMeta != null) {
-            hits.map { ytmusicTransferScore(it, exactMeta, durationRegistry[query] ?: 0) }
-        } else {
-            emptyList()
-        }
-        // A hit is "verified" as the right recording when its artist matches the
-        // query, OR (when we know the Spotify length) its duration is within ~4s.
-        fun verified(h: SongItem): Boolean {
-            val artistOk = h.artists.any { a -> norm(a.name).let { it.isNotEmpty() && qn.contains(it) } }
-            val d = h.duration
-            val durOk = wantSec != null && d != null && kotlin.math.abs(d - wantSec) <= 4
-            return artistOk || durOk
-        }
-        fun isRequestedEdition(item: SongItem): Boolean = when (wantExplicit) {
-            true -> item.explicit || (filter == YouTube.SearchFilter.FILTER_VIDEO &&
-                Regex("\\b(explicit|uncensored)\\b", RegexOption.IGNORE_CASE).containsMatchIn(item.title))
-            false -> !item.explicit
-            null -> true
-        }
-        fun explicitFirst(list: List<SongItem>) =
-            if (wantExplicit != null) list.sortedByDescending { it.explicit == wantExplicit } else list
-        val ordered = if (transferScored.isNotEmpty()) {
-            val accepted = transferScored
-                .filter { it.isAcceptableMatch() }
-                .filter { isRequestedEdition(it.item) }
-                .sortedWith(
-                    compareByDescending<CandidateScore> { it.item.explicit == wantExplicit || wantExplicit == null }
-                        .thenByDescending { it.score }
-                )
-                .map { it.item }
-            if (accepted.isEmpty()) {
-                val best = transferScored.maxByOrNull { it.score }
-                Log.w(
-                    TAG,
-                    "resolveVideoId: rejecting weak YouTube match for '$searchText' " +
-                        "(best='${best?.item?.title}' score=${"%.2f".format(best?.score ?: 0.0)} " +
-                        "title=${"%.2f".format(best?.titleScore ?: 0.0)} " +
-                        "artist=${"%.2f".format(best?.artistEvidenceScore ?: 0.0)} " +
-                        "duration=${"%.2f".format(best?.durationScore ?: 0.0)} " +
-                        "album=${"%.2f".format(best?.albumScore ?: 0.0)} " +
-                        "alt=${best?.unexpectedAlternates.orEmpty().joinToString("/")})",
-                )
-                return emptyList()
-            }
-            accepted.distinctBy { it.id }
-        } else {
-            // Legacy/plain queries without registered Spotify metadata: keep the
-            // old best-effort ordering.
-            val verifiedRanked = scored
-                .filter { verified(it.first) }
-                .sortedByDescending { it.second }
-                .map { it.first }
-            val restRanked = scored
-                .filter { !verified(it.first) }
-                .sortedByDescending { it.second }
-                .map { it.first }
-            (explicitFirst(verifiedRanked) + explicitFirst(restRanked))
-                .filter(::isRequestedEdition)
-                .distinctBy { it.id }
-        }
-
-        if (ordered.isEmpty()) return emptyList()
-        val chosen = ordered.first()
-        if (transferScored.isEmpty() && !verified(chosen)) {
-            Log.w(TAG, "resolveVideoId: no verified match for: $searchText (want=${wantSec}s) — best-effort '${chosen.title}'")
-        }
-        val chosenScore = transferScored.firstOrNull { it.item.id == chosen.id }
-        Log.d(
-            TAG,
-            "resolveVideoId: '$searchText' -> '${chosen.title}' by " +
-                chosen.artists.joinToString { it.name } +
-                " [explicit=${chosen.explicit} dur=${chosen.duration}s want=${wantSec}s id=${chosen.id}] " +
-                (chosenScore?.let {
-                    "score=${"%.2f".format(it.score)} title=${"%.2f".format(it.titleScore)} " +
-                        "artist=${"%.2f".format(it.artistEvidenceScore)} duration=${"%.2f".format(it.durationScore ?: 0.0)} " +
-                        "album=${"%.2f".format(it.albumScore ?: 0.0)} " +
-                        "altPenalty=${"%.2f".format(it.alternatePenalty)} " +
-                        "alt=${it.unexpectedAlternates.joinToString("/")}"
-                } ?: "${ordered.count { verified(it) }} verified/${ordered.size}"),
-        )
-        return ordered.map { it.id }.distinct()
+        val matched=rank(extra)
+        if(matched.isNotEmpty())candidateCache[cacheKey]=matched
+        return matched
     }
 
     /**
@@ -1034,20 +950,19 @@ object SongPlayer {
         val connectivityManager =
             appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val tried = mutableSetOf<String>()
-        suspend fun tryIds(ids: List<String>): YTPlayerUtils.PlaybackData? {
-            for (videoId in ids) {
-                if (!tried.add(videoId)) continue
-                // One hung candidate must not use up the whole budget.
-                (kotlinx.coroutines.withTimeoutOrNull(15_000L) {
-                    YTPlayerUtils.playerResponseForPlayback(
-                        videoId = videoId,
-                        audioQuality = audioQuality,
-                        connectivityManager = connectivityManager,
-                    )
-                } ?: Result.failure(java.io.IOException("timed out"))).fold(
-                    onSuccess = { return it },
-                    onFailure = { Log.w(TAG, "stream failed for $videoId (${it.message}) — trying next candidate for: ${searchTextForPlayback(query)}") },
-                )
+        suspend fun tryIds(ids:List<String>):YTPlayerUtils.PlaybackData? {
+            val candidates=ids.distinct().filter{it !in tried}.take(3)
+            for(batch in candidates.chunked(2)) {
+            tried.addAll(batch)
+            val result=firstPlayable(batch.map {videoId ->
+                val connections=LookupConnections()
+                StreamLookup(cancel={connections.close()}) {
+                    withContext(connections) {kotlinx.coroutines.withTimeoutOrNull(14000) {
+                        YTPlayerUtils.playerResponseForPlayback(videoId=videoId,audioQuality=audioQuality,connectivityManager=connectivityManager).getOrNull()
+                    }}
+                }
+            },timeoutMs=15000)
+            if(result!=null)return result
             }
             return null
         }
@@ -1061,7 +976,9 @@ object SongPlayer {
         // reuploads — usually aren't age-gated: last-resort pass over those.
         Log.w(TAG, "song candidates exhausted, trying video search for: ${searchTextForPlayback(query)}")
         tryIds(resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO).take(3))?.let { return it }
-        Log.e(TAG, "All YouTube candidates failed for: ${searchTextForPlayback(query)}")
+        candidateCache.remove(query+":"+YouTube.SearchFilter.FILTER_SONG)
+        candidateCache.remove(query+":"+YouTube.SearchFilter.FILTER_VIDEO)
+        Log.e(TAG, "No playable YouTube match")
         return null
     }
 
@@ -1134,7 +1051,7 @@ object SongPlayer {
      *
      * IO errors (2xxx) get one re-resolve attempt: the cached URL is discarded and a
      * fresh one is fetched; if that succeeds we resume from where we left off.
-     * Non-IO errors (decode, DRM, etc.) skip straight to the next track.
+     * A failed retry leaves the selected track available for explicit recovery.
      */
     private val midPlayErrorListener = object : Player.Listener {
         // Track end is detected here, not in the UI: Compose stops when the screen is
@@ -1148,9 +1065,8 @@ object SongPlayer {
             retriedRequest = null
             val p = player ?: return
             if (p.currentMediaItemIndex > 0) p.removeMediaItems(0, p.currentMediaItemIndex)
-            appCtx?.let { ctx ->
-                scope.launch { resolveStreamUrl(query, ctx, forPlayback = true) } // badge
-            }
+            currentSource=sourceCache[query] ?: currentSource
+            currentQuality=qualityCache[query].orEmpty()
             onPreloadedTrackStarted?.invoke(query)
         }
 
@@ -1158,6 +1074,15 @@ object SongPlayer {
         // mirror it so the in-app button doesn't keep showing the old state.
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (!isCrossfading) boundState?.updatePlayingState(playWhenReady)
+        }
+
+        override fun onIsPlayingChanged(isPlaying:Boolean) {
+            if(isPlaying) {
+                playbackMessage="";playbackFailed=false
+                val state=boundState;val q=state?.queue?.value.orEmpty()
+                val i=q.indexOfFirst{it.url==currentRequest}
+                if(i>=0)q.getOrNull(i+1)?.let{next->appCtx?.let{prefetch(next.url,it)}}
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1176,9 +1101,10 @@ object SongPlayer {
             preloadedNext = null
             Log.w(TAG, "mid-play error for $song: ${error.errorCodeName} (code ${error.errorCode})")
             // Drop the cached URL — it may have expired (Deezer CDN, YouTube signing).
-            streamCache.remove(song)
+            streamExpiry.remove(song)
+        streamCache.remove(song)
             sourceCache.remove(song)
-            val ctx = appCtx ?: run { onStreamFailed?.invoke(song); return }
+            val ctx = appCtx ?: run { reportStreamFailure(song); return }
             // Re-resolve again only if playback got further since the last one: YouTube
             // can 403 a stream after ~1 min (#76, #48), and each fresh URL plays on. A URL
             // that fails at the same spot again is dead, so skip instead of looping.
@@ -1205,8 +1131,8 @@ object SongPlayer {
                         return@launch
                     }
                 }
-                // Non-IO error or re-resolve failed — advance to the next track.
-                withContext(Dispatchers.Main) { onStreamFailed?.invoke(song) }
+                // Stop on this track and expose retry/source settings.
+                withContext(Dispatchers.Main) { reportStreamFailure(song) }
             }
         }
     }
@@ -1252,8 +1178,9 @@ object SongPlayer {
     fun play() {
         if (webPlaybackActive()) { SpotifyWebPlayer.resume(); return }
         // Fresh launch: nothing loaded yet — resume the restored session track.
+        if (playbackFailed && currentRequest.isNotBlank()) {appCtx?.let{playSong(currentRequest,it)};return}
         if ((player?.mediaItemCount ?: 0) == 0) {
-            val q = restoreQuery
+            val q = restoreQuery ?: currentRequest.takeIf{it.isNotBlank()}
             val ctx = appCtx
             if (q != null && ctx != null) { playSong(q, ctx); return }
         }
@@ -1261,6 +1188,8 @@ object SongPlayer {
     }
 
     fun pause() {
+        playRequestJob?.cancel()
+        playbackLookups.toList().forEach{it.cancel()}
         cancelCrossfade()
         if (webPlaybackActive()) { SpotifyWebPlayer.pause(); return }
         player?.let {
@@ -1287,6 +1216,7 @@ object SongPlayer {
     }
 
     fun release() {
+        matchPrefetch?.cancel()
         playRequestJob?.cancel()
         playbackLookups.toList().forEach { it.cancel() }
         positionWatchJob?.cancel()
@@ -1412,6 +1342,11 @@ object SongPlayer {
      * Crossfade and repeat keep their own paths; a stale preload is removed.
      */
     private suspend fun managePreload(ctx: Context, crossfadeMs: Int) {
+        if(!io.github.unidentified24.spock.data.preferences.isPreloadEnabled(ctx))return
+        // Short-lived lossless and Deezer URLs must be minted at the actual play.
+        if((losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(ctx) &&
+            io.github.unidentified24.spock.data.preferences.currentStreamingQuality(ctx).lossless) ||
+            (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(ctx)))return
         val state = boundState ?: return
         val p = player ?: return
         val next = withContext(Dispatchers.Main) {

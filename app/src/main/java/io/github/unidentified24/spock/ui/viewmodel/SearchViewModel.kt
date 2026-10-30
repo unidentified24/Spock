@@ -30,7 +30,6 @@ class SearchViewModel @Inject constructor(private val repository: AppRepository,
 
     val currentSongId: State<Int> get() = currentSongState.songId
 
-
     fun updateLikeState(likeState : Boolean){
         currentSongState.updateLikeState(likeState)
     }

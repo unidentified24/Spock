@@ -1,4 +1,5 @@
 package io.github.unidentified24.spock.ui.components
+import androidx.compose.foundation.background
 
 import android.content.Context
 import android.content.Intent
@@ -242,7 +243,10 @@ private fun SongMenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
         modifier = Modifier
+            .padding(horizontal=14.dp,vertical=4.dp)
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(io.github.unidentified24.spock.ui.theme.SurfaceVariant)
             .then(if (enabled) Modifier.clickable { onClick() } else Modifier)
             .padding(16.dp, 14.dp)
     ) {

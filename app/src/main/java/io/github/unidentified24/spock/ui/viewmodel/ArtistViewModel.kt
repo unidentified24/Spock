@@ -22,7 +22,6 @@ class ArtistViewModel @Inject constructor(private val repository: AppRepository,
     val currentSongPlayingState: State<Boolean> get() = currentSongState.playingState
     val currentSongId: State<Int> get() = currentSongState.songId
 
-
     private val _songs : MutableStateFlow<Response<List<SongsModel>>> = MutableStateFlow(Response.Loading())
     val songs : StateFlow<Response<List<SongsModel>>> = _songs
 
@@ -52,7 +51,6 @@ class ArtistViewModel @Inject constructor(private val repository: AppRepository,
     val followedArtistIds: StateFlow<Set<String>> = _followedArtistIds
 
     init {
-        fetchArtists()
         viewModelScope.launch(Dispatchers.IO) {
             _followedArtistIds.value = repository.provideFollowedArtists()
                 .mapNotNull { it.id.ifBlank { null } }

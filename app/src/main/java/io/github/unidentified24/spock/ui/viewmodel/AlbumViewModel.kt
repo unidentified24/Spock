@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-
 @HiltViewModel
 class AlbumViewModel @Inject constructor(private val repository: AppRepository, private val currentSongState: CurrentSongState) :  ViewModel() {
 
@@ -50,9 +49,7 @@ class AlbumViewModel @Inject constructor(private val repository: AppRepository, 
     fun updateLikeState(likeState : Boolean){
         currentSongState.updateLikeState(likeState)
     }
-    init {
-        fetchAlbums()
-    }
+    init { _albums.value=Response.Success(emptyList()) }
 
     private var albumKey: String? = null
 
@@ -73,6 +70,5 @@ class AlbumViewModel @Inject constructor(private val repository: AppRepository, 
             _albums.value = album as Response<List<AlbumsModel>>
         }
     }
-
 
 }

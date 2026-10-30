@@ -1,5 +1,4 @@
 package io.github.unidentified24.spock.ui.screens
-
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -105,7 +104,6 @@ import io.github.unidentified24.spock.data.preferences.isSongLiked
 import io.github.unidentified24.spock.data.preferences.removeLikedSongId
 import io.github.unidentified24.spock.data.preferences.setLocalAlternativeStream
 import io.github.unidentified24.spock.data.preferences.setYouTubeAlternativeStream
-import io.github.unidentified24.spock.di.Palette
 import io.github.unidentified24.spock.di.SongPlayer
 import io.github.unidentified24.spock.ui.components.Snackbar
 import io.github.unidentified24.spock.ui.navigation.Routes
@@ -115,947 +113,96 @@ import io.github.unidentified24.spock.ui.theme.AppBackground
 import io.github.unidentified24.spock.ui.theme.AppPalette
 import io.github.unidentified24.spock.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
-
-@OptIn(ExperimentalGlideComposeApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.*
+import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.*
+import io.github.unidentified24.spock.ui.components.*
+import io.github.unidentified24.spock.ui.theme.*
 @Composable
-fun PlayerScreen(navController: NavController) {
-    val playerViewModel : PlayerViewModel = hiltViewModel()
-    val songTitle = playerViewModel.currentSongTitle.value
-    val songSinger = playerViewModel.currentSongSinger.value
-    val songCoverUri = playerViewModel.currentSongCoverUri.value
-    val songPlayingState = playerViewModel.currentSongPlayingState.value
-    val songId = playerViewModel.currentSongId.value
-    val context = LocalContext.current
-    val isLiked = remember {
-        mutableStateOf(isSongLiked(context, songId.toString()))
+fun PlayerScreen(navController:NavController) {
+    val vm:PlayerViewModel=hiltViewModel();val context=LocalContext.current
+    val title=vm.currentSongTitle.value;val artist=vm.currentSongSinger.value;val id=vm.currentSongId.value
+    val playing=vm.currentSongPlayingState.value;val songs=vm.queue.value
+    var menu by remember {mutableStateOf(false)};var lyrics by remember {mutableStateOf(false)}
+    val liked=remember(id) {mutableStateOf(isSongLiked(context,id.toString()))}
+    if(menu) PlayerOptionsSheet(navController,vm,context,liked,onDismiss={menu=false})
+    BackHandler(lyrics){lyrics=false}
+    if(lyrics) {
+        LyricsScreen(title,artist,vm.currentSongAlbum.value,AppPalette,onClose={lyrics=false})
+        return
     }
-    var showMenu by remember { mutableStateOf(false) }
-    var showLyrics by remember { mutableStateOf(false) }
-    var showSavedIn by remember { mutableStateOf(false) }
-
-    BackHandler(enabled = showLyrics) {
-        showLyrics = false
-    }
-
-    if (showMenu) {
-        PlayerOptionsSheet(
-            navController = navController,
-            playerViewModel = playerViewModel,
-            context = context,
-            isLiked = isLiked,
-            onDismiss = { showMenu = false }
-        )
-    }
-
-    if (showSavedIn) {
-        playerViewModel.queue.value.firstOrNull { it.id == songId }?.let { track ->
-            io.github.unidentified24.spock.ui.components.SavedInSheet(
-                song = track,
-                context = context,
-                onDismiss = { showSavedIn = false },
-                onLikedChanged = { isLiked.value = it },
-            )
-        } ?: run { showSavedIn = false }
-    }
-
-
-    var songProgress by remember { mutableStateOf(maxOf(0f, SongPlayer.getCurrentPosition().toFloat())) }
-    var songDurationText by remember { mutableStateOf("0") }
-    var songProgressText by remember { mutableStateOf("") }
-
-    songDurationText = if (SongPlayer.getDuration() < 0){
-        "0:00"
-    }
-    else{
-        playerViewModel.formatDuration(SongPlayer.getDuration())
-    }
-    songProgressText = if (SongPlayer.getCurrentPosition() < 0){
-        "0:00"
-    }
-    else{
-        playerViewModel.formatDuration(SongPlayer.getCurrentPosition())
-    }
-
-    Log.d("checkplayer", songTitle)
-
-    //playerViewModel.updateSongState(songCoverUri, songTitle, songSinger, songPlayingState)
-
-
-
-    var dominentColor by remember {
-        mutableStateOf(Color(AppBackground.toArgb()))
-    }
-    Palette().extractSecondColorFromCoverUrl(context = context, songCoverUri){ color ->
-        dominentColor = color
-    }
-
-    val songsResponse by playerViewModel.songs.collectAsState()
-    val shuffle = playerViewModel.shuffleState.value
-    val repeat = playerViewModel.repeatState.value
-
-    val songs = if (songsResponse is Response.Success){
-        (songsResponse as Response.Success).data
-    } else {
-        emptyList<SongsModel>()
-    }
-
-    // The queue is whatever list the user actually started playing (album tracks,
-    // search results, liked songs) — stored when the song was tapped. Falling back
-    // to the global top-tracks feed used to crash / be empty (it's rate-limited).
-    val queueSongs = playerViewModel.queue.value
-
-    // ── Now-playing swipe pager ──
-    // Index of the playing track in the queue (fallback to 0 so the pager is valid
-    // even before the queue/current id line up).
-    val currentIndex = queueSongs.indexOfFirst { it.id == playerViewModel.currentSongId.value }
-        .let { if (it >= 0) it else 0 }
-    val artworkPagerState = rememberPagerState(
-        initialPage = currentIndex,
-        pageCount = { queueSongs.size.coerceAtLeast(1) },
-    )
-    // External track changes (auto-advance, prev/next buttons, queue edits) → snap the
-    // pager to the new track. Guard on settled state so we don't fight an in-progress swipe.
-    LaunchedEffect(currentIndex, queueSongs.size) {
-        if (currentIndex in 0 until queueSongs.size &&
-            artworkPagerState.currentPage != currentIndex &&
-            !artworkPagerState.isScrollInProgress
-        ) {
-            artworkPagerState.scrollToPage(currentIndex)
-        }
-    }
-    // User settled the pager on a different page → play that track. Compare against the
-    // live current id (not currentIndex captured above) to avoid a replay feedback loop.
-    LaunchedEffect(artworkPagerState, queueSongs) {
-        snapshotFlow { artworkPagerState.settledPage }
-            .distinctUntilChanged()
-            .collect { page ->
-                queueSongs.getOrNull(page)?.let { target ->
-                    if (target.id != playerViewModel.currentSongId.value) {
-                        playerViewModel.playSongAt(queueSongs, page, context)
-                        isLiked.value = isSongLiked(context, target.id.toString())
-                    }
-                }
+    val current=songs.firstOrNull {it.id==id}
+    Column(Modifier.fillMaxSize().background(AppBackground).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement=Arrangement.spacedBy(20.dp)) {
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+            StudioIcon(Icons.Default.KeyboardArrowDown,"Close player"){navController.navigateUp()}
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                SpockMark(Modifier.size(26.dp));Text("THE LISTENING ROOM",color=AppPalette,style=MaterialTheme.typography.labelSmall)
             }
-    }
-
-    // Warm the stream cache for the adjacent tracks so next/previous start instantly.
-    LaunchedEffect(playerViewModel.currentSongId.value, queueSongs) {
-        val idx = queueSongs.indexOfFirst { it.id == playerViewModel.currentSongId.value }
-        if (idx >= 0) {
-            queueSongs.getOrNull(idx + 1)?.let { SongPlayer.prefetch(it.url, context) }
-            queueSongs.getOrNull(idx - 1)?.let { SongPlayer.prefetch(it.url, context) }
+            StudioIcon(Icons.Default.MoreHoriz,"Track options"){menu=true}
         }
-    }
-
-    // Load the current track's Spotify Canvas (full-screen looping video background).
-    LaunchedEffect(playerViewModel.currentSongId.value, queueSongs) {
-        val track = queueSongs.firstOrNull { it.id == playerViewModel.currentSongId.value }
-        playerViewModel.loadCanvas(track?.spotifyTrackId.orEmpty())
-    }
-
-
-
-
-    // End of track (repeat / next / radio) is handled by PlaybackService, so it also
-    // happens with the screen off.
-
-    Log.d("queueSongaa", songs.toString())
-    Log.d("queueSongc", playerViewModel.currentSongAlbum.value.toString())
-    Log.d("queueSong", queueSongs.toString())
-
-    LaunchedEffect(key1 = songPlayingState) {
-
-            while (songPlayingState) {
-
-                    songProgress = SongPlayer.getCurrentPosition().toFloat()
-                    songProgressText = playerViewModel.formatDuration(songProgress.toLong())
-                    // FLAC (and any slow start) learns its length after the screen first
-                    // drew; refresh it here or it stays 0:00 until the screen reopens.
-                    val dur = SongPlayer.getDuration()
-                    songDurationText = if (dur < 0) "0:00" else playerViewModel.formatDuration(dur)
-
-//                if (songProgress >= songDuration ) {
-//                    if (playerViewModel.repeatState.value){
-//                        SongPlayer.seekTo(0) // Restart the song
-//                    }
-//                }
-
-
-                delay(300L) // update every .0 second
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(GridBackground).padding(18.dp)) {
+            StudioCover(vm.currentSongCoverUri.value,Modifier.fillMaxWidth().aspectRatio(1.12f))
+        }
+        Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(vm.currentSongAlbum.value.ifBlank{"NOW PLAYING"}.uppercase(),color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(title.ifBlank{"Nothing playing yet"},color=Color.White,style=MaterialTheme.typography.headlineLarge,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(artist,color=TextMuted,style=MaterialTheme.typography.titleMedium,modifier=Modifier.clickable {
+                vm.goToArtist(current?.spotifyTrackId.orEmpty(),artist){navController.navigate(it)}
+            })
+        }
+        StudioPlayerTimeline(id,playing)
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceEvenly) {
+            StudioIcon(Icons.Default.Shuffle,"Shuffle",selected=vm.shuffleState.value){vm.updateShuffleState(!vm.shuffleState.value)}
+            StudioIcon(Icons.Default.SkipPrevious,"Previous"){vm.playPreviousSong(songs,context)}
+            FilledIconButton(onClick={
+                if(playing) SongPlayer.pause() else SongPlayer.play()
+                vm.updateSongState(vm.currentSongCoverUri.value,title,artist,!playing,id,vm.currentSongIndex.value,vm.currentSongAlbum.value)
+            },modifier=Modifier.size(76.dp),shape=RoundedCornerShape(24.dp)) {
+                Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,if(playing)"Pause" else "Play",modifier=Modifier.size(38.dp))
             }
+            StudioIcon(Icons.Default.SkipNext,"Next"){vm.playNextSongs(songs,context)}
+            StudioIcon(Icons.Default.Repeat,"Repeat",selected=vm.repeatState.value){vm.updateRepeatState(!vm.repeatState.value)}
+        }
+        StudioSourceStatus(id,navController,current?.url.orEmpty())
+        Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick={lyrics=true},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.Notes,null);Text(" Lyrics")}
+            OutlinedButton(onClick={navController.navigate(Routes.Queue.route)},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.QueueMusic,null);Text(" Up next")}
+        }
+        Text("Track options include save, download, sleep timer and alternative audio.",color=TextMuted,style=MaterialTheme.typography.bodySmall)
     }
-
-
-
-
-
-
-
-
-
-    val canvasUrl = playerViewModel.canvasUrl.value
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(dominentColor, Color.Black),
-                    startY = 100f
-                )
-            )
-    ) {
-        if (canvasUrl != null) {
-            // Spotify Canvas: the looping video fills the whole now-playing screen
-            // edge-to-edge behind the controls (the "immersive" treatment), with a
-            // scrim on top so the title, slider and buttons stay readable.
-            CanvasVideo(
-                url = canvasUrl,
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.50f),
-                                Color.Black.copy(alpha = 0.10f),
-                                Color.Black.copy(alpha = 0.35f),
-                                Color.Black.copy(alpha = 0.80f),
-                            )
-                        )
-                    )
-            )
-        }
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-        item {
-        Column(
-            verticalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillParentMaxHeight()
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            PlayerTopBar(
-                navController,
-                onMenuClick = { showMenu = true },
-                contextName = playerViewModel.currentSongAlbum.value,
-            )
-            io.github.unidentified24.spock.ui.components.ListeningBadge(songId)
-            //Spacer(modifier = Modifier.padding(16.dp))
-            // Swipe the artwork left/right to skip to the next/previous track. Using a
-            // HorizontalPager makes the artwork follow the finger and snap, syncing the
-            // change with the track (Spotify's now-playing gesture) instead of an abrupt
-            // swipe-then-switch. When the queue is empty fall back to a static image.
-            // When a Canvas is playing it fills the screen behind this column, so the
-            // artwork is hidden (alpha 0) rather than removed — the pager stays in
-            // the layout so the swipe-to-skip gesture keeps working over the video.
-            // The artwork is the FLEXIBLE part of the screen (weight), capped at its
-            // old 385dp size. On short/scaled displays the fixed-size version pushed
-            // the slider and playback buttons off the bottom of the screen; now the
-            // artwork shrinks instead and the controls always fit.
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                if (queueSongs.isEmpty()) {
-                    GlideImage(
-                        modifier = Modifier
-                            .sizeIn(maxWidth = 385.dp, maxHeight = 385.dp)
-                            .aspectRatio(1f)
-                            .padding(20.dp)
-                            .clip(RoundedCornerShape(28.dp))
-                            .alpha(if (canvasUrl != null) 0f else 1f),
-                        model = songCoverUri,
-                        contentScale = ContentScale.Crop,
-                        contentDescription = "")
-                } else {
-                    HorizontalPager(
-                        state = artworkPagerState,
-                        modifier = Modifier
-                            .sizeIn(maxWidth = 385.dp, maxHeight = 385.dp)
-                            .aspectRatio(1f),
-                    ) { page ->
-                        GlideImage(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(20.dp)
-                                .clip(RoundedCornerShape(28.dp))
-                                .alpha(if (canvasUrl != null) 0f else 1f),
-                            model = queueSongs.getOrNull(page)?.coverUri ?: songCoverUri,
-                            contentScale = ContentScale.Crop,
-                            contentDescription = "")
-                    }
-                }
+}
+@Composable private fun StudioSourceStatus(id:Int,navController:NavController,query:String) {
+    val context=LocalContext.current
+    var failed by remember(id){mutableStateOf(false)}
+    var label by remember(id){mutableStateOf("")}
+    LaunchedEffect(id){while(true){failed=SongPlayer.playbackFailed;label=SongPlayer.playbackMessage.ifBlank {SongPlayer.currentSource+" · "+SongPlayer.currentQuality};delay(600)}}
+    Row(Modifier.fillMaxWidth().clip(StudioShape).background(GridBackground).padding(14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+        Icon(Icons.Default.GraphicEq,null,tint=AppPalette)
+        Column(Modifier.weight(1f)) {
+            Text(label,color=TextMuted,style=MaterialTheme.typography.bodySmall)
+            if(failed) Row {
+                TextButton(onClick={SongPlayer.invalidateResolvedStream(query);SongPlayer.playSong(query,context)}) { Text("Retry") }
+                TextButton(onClick={navController.navigate(Routes.Settings.route)}) { Text("Sources") }
             }
-            //Spacer(modifier = Modifier.padding(30.dp))
-
-            Column(
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier
-                    .height(300.dp)
-                    .padding(0.dp, 0.dp, 0.dp, 50.dp)
-            ){
-                // Reads each 300ms tick (songProgress recomposition) so it reflects
-                // the current engine — Spotify vs Lossless (SpotiFLAC) vs YouTube.
-                PlayerInfo(
-                    songTitle, songSinger, songId, context, isLiked,
-                    source = SongPlayer.currentSource,
-                    quality = SongPlayer.currentQuality,
-                    onArtistClick = {
-                        val track = queueSongs.firstOrNull { it.id == songId }
-                        playerViewModel.goToArtist(track?.spotifyTrackId.orEmpty(), songSinger) { route ->
-                            navController.navigate(route)
-                        }
-                    },
-                    spotifyTrackId = queueSongs.firstOrNull { it.id == songId }?.spotifyTrackId.orEmpty(),
-                    onShowSavedIn = { showSavedIn = true },
-                )
-
-                // Smooth scrubbing: while dragging, the thumb follows the finger
-                // locally (no seek per delta — that fired a web seek on every pixel
-                // and fought the polled position, making it jerky). We seek ONCE on
-                // release.
-                var isDragging by remember { mutableStateOf(false) }
-                var dragValue by remember { mutableStateOf(0f) }
-                val liveFraction = SongPlayer.getDuration().toFloat().let { dur ->
-                    if (dur > 0f) (SongPlayer.getCurrentPosition().toFloat() / dur).coerceIn(0f, 1f) else 0f
-                }
-                CustomSlider(
-                    value = if (isDragging) dragValue else liveFraction,
-                    onValueChange = { newValue ->
-                        isDragging = true
-                        dragValue = newValue
-                    },
-                    onValueChangeFinished = {
-                        SongPlayer.seekTo((dragValue * SongPlayer.getDuration()).toLong())
-                        isDragging = false
-                        if (!songPlayingState) {
-                            SongPlayer.play()
-                            playerViewModel.updateSongState(
-                                playerViewModel.currentSongCoverUri.value,
-                                playerViewModel.currentSongTitle.value,
-                                playerViewModel.currentSongSinger.value,
-                                true,
-                                playerViewModel.currentSongId.value,
-                                playerViewModel.currentSongIndex.value,
-                                playerViewModel.currentSongAlbum.value
-                            )
-                        }
-                    },
-                    valueRange = 0f..1f,
-                    steps = 0,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp, 20.dp, 16.dp, 0.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.Gray
-                    )
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(25.dp, 0.dp)
-                    ,
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        // While scrubbing, show the dragged time so the label tracks the finger.
-                        text = if (isDragging)
-                            playerViewModel.formatDuration((dragValue * SongPlayer.getDuration()).toLong())
-                        else songProgressText,
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = songDurationText,
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-
-                Spacer(modifier = Modifier.padding(5.dp))
-                PlayerFull(songPlayingState, playerViewModel, context, isLiked, shuffle, repeat, queueSongs)
-            }
-
-            // Spotify-style bottom row: current audio device (Connect) on the left,
-            // share + queue on the right.
-            PlayerConnectRow(
-                navController = navController,
-                context = context,
-                currentTrack = queueSongs.firstOrNull { it.id == playerViewModel.currentSongId.value },
-            )
-
-            //PlayerEndInfo()
-        }
-        }
-        item {
-            InlineLyrics(
-                title = songTitle,
-                artist = songSinger,
-                album = playerViewModel.currentSongAlbum.value,
-                accentColor = dominentColor,
-                onExpand = { showLyrics = true },
-            )
-        }
-        }
-
-        AnimatedVisibility(
-            visible = showLyrics,
-            enter = slideInVertically(
-                animationSpec = tween(durationMillis = 250, easing = EaseOut),
-                initialOffsetY = { it },
-            ),
-            exit = slideOutVertically(
-                animationSpec = tween(durationMillis = 200, easing = EaseOut),
-                targetOffsetY = { it },
-            ),
-        ) {
-            LyricsScreen(
-                title = songTitle,
-                artist = songSinger,
-                album = playerViewModel.currentSongAlbum.value,
-                accentColor = dominentColor,
-                onClose = { showLyrics = false }
-            )
         }
     }
 }
-
-
-
-
-
-
-
-
-
-@Composable
-fun PlayerTopBar(
-    navController: NavController,
-    onMenuClick: () -> Unit,
-    contextName: String = "",
-) {
-    Row(verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-    ) {
-        Icon(modifier = Modifier
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                       navController.navigateUp()
-            },
-            painter = painterResource(id = R.drawable.ic_down),
-            tint = Color.White,
-            contentDescription = "")
-
-        // Spotify shows the source context here (album/playlist), not a generic label.
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "IN YOUR ORBIT",
-                color = Color(0xFFB9B4C3),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = contextName.ifBlank { "Now Playing" },
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 200.dp),
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.MoreVert,
-                tint = Color.White,
-                modifier = Modifier
-                    .size(23.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onMenuClick() },
-                contentDescription = "")
+@Composable private fun StudioPlayerTimeline(id:Int,playing:Boolean) {
+    var position by remember(id){mutableStateOf(0L)};var duration by remember(id){mutableStateOf(0L)}
+    var dragging by remember(id){mutableStateOf(false)};var value by remember(id){mutableStateOf(0f)}
+    LaunchedEffect(id,playing){while(true){position=SongPlayer.getCurrentPosition().coerceAtLeast(0);duration=SongPlayer.getDuration().coerceAtLeast(0);delay(if(playing)500 else 1500)}}
+    Column {
+        Slider(value=if(dragging)value else if(duration>0)(position.toFloat()/duration).coerceIn(0f,1f) else 0f,
+            onValueChange={dragging=true;value=it},onValueChangeFinished={SongPlayer.seekTo((value*duration).toLong());dragging=false},
+            colors=SliderDefaults.colors(thumbColor=AppPalette,activeTrackColor=AppPalette,inactiveTrackColor=SurfaceVariant),modifier=Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+            Text("SEEK",color=TextMuted,style=MaterialTheme.typography.labelSmall)
+            Text(if(duration>0) "${((if(dragging)value else position.toFloat()/duration)*100).toInt().coerceIn(0,100)}%" else "—",color=TextMuted,style=MaterialTheme.typography.labelSmall)
         }
     }
 }
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-fun PlayerInfo(
-    songTitle: String,
-    songSinger: String,
-    songId: Int,
-    context: Context,
-    isLiked: MutableState<Boolean>,
-    source: String = "",
-    quality: String = "",
-    onArtistClick: (() -> Unit)? = null,
-    spotifyTrackId: String = "",
-    onShowSavedIn: (() -> Unit)? = null,
-) {
-
-    var snackbarMessage by remember {
-        mutableStateOf("")
-    }
-    var snackbarVisible by remember {
-        mutableStateOf(false)
-    }
-
-    LaunchedEffect(snackbarVisible) {
-        delay(1500)
-        snackbarVisible = false
-    }
-
-
-    Row(
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(25.dp, 10.dp)
-    ) {
-
-        if (snackbarVisible){
-            Snackbar(showMessage = snackbarMessage)
-        }
-        else{
-        Row(
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 12.dp)
-        ) {
-//                        GlideImage(
-//                            modifier = Modifier.size(60.dp),
-//                            model = albumSongs[song].coverUri,
-//                            contentScale = ContentScale.Crop,
-//                            contentDescription = ""
-//                        )
-            Column {
-                Text(
-                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                    text = songTitle,
-                    color = Color.White,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-                Text(
-                    text = songSinger,
-                    color = Color.Gray,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = if (onArtistClick != null) Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { onArtistClick() } else Modifier,
-                )
-                if (source.isNotBlank()) {
-                    // One rule app-wide: green = lossless (as on the FLAC badges in Local
-                    // files), grey = everything else, whatever the source. Source-based
-                    // colours made a downloaded or local FLAC show up red.
-                    val lossless = source.startsWith("Lossless") || listOf("FLAC", "WAV", "ALAC", "AIFF", "APE")
-                        .any { quality.uppercase().contains(it) }
-                    val badgeColor = if (lossless || source == "Spotify") io.github.unidentified24.spock.ui.theme.AppPalette else Color(0xFF9C9C9C)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 3.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(badgeColor)
-                        )
-                        Text(
-                            // Don't advertise the fallback engine — just "Streamed".
-                            // Append the stream quality (codec/bitrate or FLAC depth)
-                            // so the user can see what they're actually hearing.
-                            text = (if (source == "YouTube") "Streamed" else source) +
-                                (if (quality.isNotBlank()) " • $quality" else ""),
-                            color = badgeColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            modifier = Modifier.padding(start = 5.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        Icon(
-            modifier = Modifier
-                .size(26.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (isLiked.value && onShowSavedIn != null) {
-                        // Already saved — second tap opens the Spotify-style
-                        // "Saved in" sheet (Liked Songs + playlists) instead of
-                        // silently unliking.
-                        onShowSavedIn()
-                        return@clickable
-                    }
-                    if (isLiked.value) {
-                        removeLikedSongId(context, songId.toString())
-                        snackbarMessage = "Removed from Liked Songs"
-                    } else {
-                        addLikedSongId(context, songId.toString())
-                        snackbarMessage = "Added to Liked Songs"
-                    }
-                    snackbarVisible = true
-                    isLiked.value = isSongLiked(context, songId.toString())
-                    // Mirror the like to the real Spotify account.
-                    io.github.unidentified24.spock.data.api.SpotifySync.setTrackSaved(context, spotifyTrackId, isLiked.value)
-                },
-            painter = if (isLiked.value){
-                painterResource(id = R.drawable.added)
-            }
-            else{
-                painterResource(id = R.drawable.ic_add)
-            }
-            ,
-            tint = if (isLiked.value){
-                Color(AppPalette.toArgb())
-            }
-            else{
-                Color.White
-            },
-            contentDescription = ""
-        )
-    }
-    }
-
-
-
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CustomSlider(
-    modifier: Modifier = Modifier,
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    onValueChangeFinished: (() -> Unit)? = null,
-    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-    steps: Int = 0,
-    colors: SliderColors = SliderDefaults.colors(),
-) {
-    Box(modifier = modifier.height(10.dp)) {
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            onValueChangeFinished = onValueChangeFinished,
-            valueRange = valueRange,
-            steps = steps,
-            colors = colors,
-            thumb = {
-                SliderDefaults.Thumb( //androidx.compose.material3.SliderDefaults
-                    interactionSource = remember { MutableInteractionSource() },
-                    modifier = Modifier.align(Alignment.Center),
-                    colors = colors,
-                    thumbSize = DpSize(9.dp, 9.dp)
-                )
-            }
-        )
-    }
-}
-
-@Composable
-fun PlayerEndInfo() {
-    Row(verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(20.dp)){
-        Icon(
-            modifier = Modifier
-                .size(22.dp),
-            painter = painterResource(id = R.drawable.ic_devices),
-            tint = Color.White,
-            contentDescription = "")
-        Icon(
-            modifier = Modifier
-                .size(16.dp),
-            painter = painterResource(id = R.drawable.ic_share),
-            tint = Color.White,
-            contentDescription = "")
-    }
-}
-
-@Composable
-fun PlayerFull(
-    songPlayingState: Boolean,
-    playerViewModel: PlayerViewModel,
-    context: Context,
-    isLiked: MutableState<Boolean>,
-    shuffle: Boolean,
-    repeat: Boolean,
-    queueSongs: List<SongsModel>
-) {
-
-
-
-
-    Row(verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(20.dp)
-    ) {
-        Icon(
-            modifier = Modifier
-                .size(25.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (shuffle) {
-                        playerViewModel.updateShuffleState(false)
-                    } else {
-                        playerViewModel.updateShuffleState(true)
-                    }
-
-                }
-            ,
-            tint = if (shuffle){
-                Color(AppPalette.toArgb())
-            }
-            else{
-                Color.White
-            },
-            painter = painterResource(id = R.drawable.ic_player_shuffle),
-            contentDescription = "")
-        Icon(
-            modifier = Modifier
-                .size(35.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    // The queue itself is already in shuffled order when shuffle
-                    // is on (reordered once at toggle) — never re-shuffle per tap.
-                    playerViewModel.playPreviousSong(queueSongs, context)
-                    isLiked.value =
-                        isSongLiked(context, playerViewModel.currentSongId.value.toString())
-                }
-            ,
-            tint = Color.White,
-            painter = painterResource(id = R.drawable.ic_player_back),
-            contentDescription = "")
-        androidx.compose.foundation.layout.Box(
-            modifier = Modifier
-                // requiredSize forces an exact 64×64 square even if the parent Column
-                // constrains height — .size() alone let it get squished into an ellipse.
-                .requiredSize(64.dp)
-                .clip(CircleShape)
-                .background(Color.White)
-                .clickable {
-                    if (songPlayingState) {
-                        SongPlayer.pause()
-                        playerViewModel.updateSongState(
-                            playerViewModel.currentSongCoverUri.value,
-                            playerViewModel.currentSongTitle.value,
-                            playerViewModel.currentSongSinger.value,
-                            false,
-                            playerViewModel.currentSongId.value,
-                            playerViewModel.currentSongIndex.value,
-                            playerViewModel.currentSongAlbum.value
-                        )
-                    } else {
-                        SongPlayer.play()
-                        playerViewModel.updateSongState(
-                            playerViewModel.currentSongCoverUri.value,
-                            playerViewModel.currentSongTitle.value,
-                            playerViewModel.currentSongSinger.value,
-                            true,
-                            playerViewModel.currentSongId.value,
-                            playerViewModel.currentSongIndex.value,
-                            playerViewModel.currentSongAlbum.value
-                        )
-                    }
-                }
-            ,
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                modifier = Modifier
-                    .size(30.dp)
-
-                ,
-                tint = Color.Black,
-                painter = if (songPlayingState)
-                    painterResource(id = R.drawable.ic_playing)
-                else
-                    painterResource(id = R.drawable.play_svgrepo_com)
-                ,
-                contentDescription = "")
-        }
-
-        Icon(
-            modifier = Modifier
-                .size(35.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-
-                    playerViewModel.playNextSongs(queueSongs, context)
-                    isLiked.value =
-                        isSongLiked(context, playerViewModel.currentSongId.value.toString())
-                }
-            ,
-            tint = Color.White,
-            painter = painterResource(id = R.drawable.ic_player_skip),
-            contentDescription = "")
-        Icon(
-            modifier = Modifier
-                .size(20.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (repeat) {
-                        playerViewModel.updateRepeatState(false)
-                    } else {
-                        playerViewModel.updateRepeatState(true)
-                    }
-
-
-                }
-            ,
-            tint = if (repeat){
-                Color(AppPalette.toArgb())
-            }
-            else{
-                Color.White
-            },
-            painter = painterResource(id = R.drawable.ic_repeat),
-            contentDescription = "")
-    }
-}
-
-/** The current audio output route name for the Connect indicator (BT name if
- *  connected, else Headphones / This device). Uses AudioDeviceInfo.productName
- *  which needs no Bluetooth permission. */
-private fun currentAudioRoute(context: Context): String {
-    return try {
-        val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        val outs = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
-        val bt = outs.firstOrNull {
-            it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-        }
-        if (bt != null) return bt.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"
-        val wired = outs.firstOrNull {
-            it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                it.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
-        }
-        if (wired != null) "Headphones" else "This device"
-    } catch (e: Exception) {
-        "This device"
-    }
-}
-
-@Composable
-fun PlayerConnectRow(
-    navController: NavController,
-    context: Context,
-    currentTrack: SongsModel?,
-) {
-    val routeName = remember(currentTrack?.id) { currentAudioRoute(context) }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 25.dp, vertical = 4.dp),
-    ) {
-        // Device / Spotify Connect indicator (green, like the official app).
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_devices),
-                tint = io.github.unidentified24.spock.ui.theme.AppPalette,
-                modifier = Modifier.size(18.dp),
-                contentDescription = "Device",
-            )
-            Text(
-                text = routeName,
-                color = io.github.unidentified24.spock.ui.theme.AppPalette,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 6.dp)
-                    .widthIn(max = 170.dp),
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_share),
-                tint = Color.White,
-                modifier = Modifier
-                    .size(20.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        val link = currentTrack?.spotifyTrackId
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let { "https://open.spotify.com/track/$it" }
-                            ?: "${currentTrack?.title ?: ""} ${currentTrack?.singer ?: ""}".trim()
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, link)
-                        }
-                        context.startActivity(Intent.createChooser(send, "Share"))
-                    },
-                contentDescription = "Share",
-            )
-            Spacer(modifier = Modifier.width(22.dp))
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.List,
-                tint = Color.White,
-                modifier = Modifier
-                    .size(23.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { navController.navigate(Routes.Queue.route) },
-                contentDescription = "Queue",
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalGlideComposeApi::class)
 @Composable
 fun PlayerOptionsSheet(
@@ -1069,7 +216,6 @@ fun PlayerOptionsSheet(
     var showSleep by remember { mutableStateOf(false) }
     var showSavedIn by remember { mutableStateOf(false) }
     var showAlternativeStream by remember { mutableStateOf(false) }
-
     val title = playerViewModel.currentSongTitle.value
     val singer = playerViewModel.currentSongSinger.value
     val cover = playerViewModel.currentSongCoverUri.value
@@ -1098,7 +244,6 @@ fun PlayerOptionsSheet(
         currentAlternative = getAlternativeStream(context, alternativeKey)
         Toast.makeText(context, "Alternative stream set to local file", Toast.LENGTH_SHORT).show()
     }
-
     if (showSavedIn && currentSong != null) {
         io.github.unidentified24.spock.ui.components.SavedInSheet(
             song = currentSong,
@@ -1108,7 +253,6 @@ fun PlayerOptionsSheet(
         )
         return
     }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1173,7 +317,6 @@ fun PlayerOptionsSheet(
                     }
                 }
                 androidx.compose.material3.HorizontalDivider(color = io.github.unidentified24.spock.ui.theme.SurfaceVariant)
-
                 PlayerMenuRow(
                     icon = Icons.Default.Share,
                     label = "Share"
@@ -1304,7 +447,6 @@ fun PlayerOptionsSheet(
         }
     }
 }
-
 @Composable
 fun AlternativeStreamEditor(
     currentAlternative: io.github.unidentified24.spock.data.preferences.AlternativeStream?,
@@ -1385,7 +527,6 @@ fun AlternativeStreamEditor(
         }
     }
 }
-
 @Composable
 fun PlayerMenuRow(
     icon: ImageVector,
@@ -1398,7 +539,10 @@ fun PlayerMenuRow(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
+            .padding(horizontal=14.dp,vertical=4.dp)
             .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(io.github.unidentified24.spock.ui.theme.SurfaceVariant)
             .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
@@ -1424,67 +568,4 @@ fun PlayerMenuRow(
             )
         }
     }
-}
-/**
- * Plays a Spotify Canvas clip: a short, muted, looping video filling the
- * now-playing background. Uses a dedicated ExoPlayer (separate from the audio
- * engine) released when the composable leaves. Falls back to nothing if the URL fails.
- *
- * Loops are served from the media cache: without it every loop re-downloaded the
- * clip, and since ExoPlayer ignores the activity lifecycle it kept doing so in the
- * background (#87, gigabytes per hour). It also pauses while the app is not visible.
- */
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@Composable
-private fun CanvasVideo(url: String, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val exo = remember(url) {
-        val cached = androidx.media3.datasource.cache.CacheDataSource.Factory()
-            .setCache(SongPlayer.mediaCache(context.applicationContext))
-            .setUpstreamDataSourceFactory(androidx.media3.datasource.DefaultHttpDataSource.Factory())
-        androidx.media3.exoplayer.ExoPlayer.Builder(context)
-            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(cached))
-            .build().apply {
-                setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
-                repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
-                volume = 0f
-                playWhenReady = true
-                prepare()
-            }
-    }
-    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current.lifecycle
-    androidx.compose.runtime.DisposableEffect(url, lifecycle) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
-            exo.playWhenReady = lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            exo.release()
-        }
-    }
-    androidx.compose.ui.viewinterop.AndroidView(
-        modifier = modifier,
-        // factory runs once; a new track's clip gets a new player, so rebind it here.
-        update = { it.player = exo },
-        factory = { ctx ->
-            androidx.media3.ui.PlayerView(ctx).apply {
-                player = exo
-                // Strip ALL chrome: no controller, no buffering spinner, and no
-                // artwork/placeholder icon (that "play icon" overlay) — just video.
-                useController = false
-                controllerAutoShow = false
-                setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_NEVER)
-                setArtworkDisplayMode(androidx.media3.ui.PlayerView.ARTWORK_DISPLAY_MODE_OFF)
-                setUseArtwork(false)
-                setDefaultArtwork(null)
-                hideController()
-                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                // Until a clip's first frame, show the screen behind, not a black shutter.
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                setKeepContentOnPlayerReset(true)
-            }
-        },
-    )
 }
