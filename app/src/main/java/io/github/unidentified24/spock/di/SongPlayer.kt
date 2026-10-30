@@ -88,6 +88,7 @@ object SongPlayer {
         private set
     @Volatile var playbackFailed:Boolean = false
         private set
+    private val rejectedStreams=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val streamExpiry = java.util.concurrent.ConcurrentHashMap<String,Long>()
     private val candidateCache = java.util.concurrent.ConcurrentHashMap<String,List<String>>()
     private var matchPrefetch:kotlinx.coroutines.Job?=null
@@ -238,6 +239,7 @@ object SongPlayer {
     }
 
     private val playbackLookups = java.util.concurrent.ConcurrentHashMap.newKeySet<kotlinx.coroutines.Job>()
+    @Volatile private var heardCurrent=false
     private var playRequestJob: kotlinx.coroutines.Job? = null
 
     fun playSong(song: String, context: Context) {
@@ -245,7 +247,10 @@ object SongPlayer {
         playbackLookups.toList().forEach { it.cancel() }
         val appContext = context.applicationContext
         appCtx = appContext
+        rejectedStreams.clear()
         currentRequest = song
+        PlaybackDiagnostics.event("Selected track; resolving audio")
+        heardCurrent=false
         playbackFailed=false
         playbackMessage="Finding your audio…"
         retriedRequest = null
@@ -560,7 +565,12 @@ object SongPlayer {
         fun lookup(resolve: suspend () -> ResolvedStream?) {
             val connections = LookupConnections()
             lookups += StreamLookup(cancel = { connections.close() }) {
-                withContext(connections) { resolve()?.takeIf { it.url.isNotBlank() } }
+                withContext(connections) {
+                    resolve()?.takeIf {
+                        PlaybackDiagnostics.event("${it.source}: URL resolved; preparing")
+                        it.url.isNotBlank() && it.url !in rejectedStreams && prepareCandidate(it,appContext,(durationRegistry[song] ?: 0).toLong())
+                    }
+                }
             }
         }
         if (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(appContext)) {
@@ -595,6 +605,7 @@ object SongPlayer {
         val winner = firstPlayable(lookups) ?: return null
         currentCoroutineContext().ensureActive()
         if (winner.url.isBlank()) return null
+        PlaybackDiagnostics.event("${winner.source}: buffered winner")
         // Only this coordinator can publish provider metadata or cache a winning URL.
         if (forPlayback) withContext(Dispatchers.Main) {
             if (currentRequest == song) {
@@ -608,6 +619,36 @@ object SongPlayer {
         sourceCache[song] = winner.source
         qualityCache[song] = winner.quality
         return winner.url
+    }
+
+    /** A URL is only eligible after Media3 can prepare buffered audio from it.
+     * Muted preparation uses the shared cache; no contender plays audibly. */
+    private suspend fun prepareCandidate(candidate:ResolvedStream,context:Context,expected:Long):Boolean = withContext(Dispatchers.Main) {
+        val probe=createPlayerWithFilter(context,handleAudioFocus=false).first
+        probe.volume=0f
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(10000) {
+                kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
+                    probe.addListener(object:Player.Listener {
+                        override fun onPlaybackStateChanged(state:Int) {
+                            if(!continuation.isActive)return
+                            if(state==Player.STATE_READY) {
+                                val duration=probe.duration
+                                val complete=expected<=0 || duration<=0 || duration>=expected*.70
+                                PlaybackDiagnostics.event("${candidate.source}: prepared; length accepted=$complete")
+                                continuation.resumeWith(Result.success(complete))
+                            } else if(state==Player.STATE_ENDED)continuation.resumeWith(Result.success(false))
+                        }
+                        override fun onPlayerError(error:PlaybackException) {
+                            PlaybackDiagnostics.event("${candidate.source}: prepare error ${error.errorCode}")
+                            if(continuation.isActive)continuation.resumeWith(Result.success(false))
+                        }
+                    })
+                    probe.setMediaItem(buildMediaItem(candidate.url,streamMimeType(candidate.url,candidate.source)))
+                    probe.prepare()
+                }
+            } == true
+        } finally {probe.release()}
     }
 
     private data class ResolvedStream(val url: String, val source: String, val quality: String, val ttlSeconds:Int=0)
@@ -639,6 +680,7 @@ object SongPlayer {
      *  can skip to the next track instead of leaving playback silent. */
     fun reportStreamFailure(song:String) {
         if(currentRequest!=song)return
+        PlaybackDiagnostics.event("Stopped on failed audio; automatic skip blocked")
         playbackFailed=true
         playbackMessage="No playable audio found. Retry or check your sources."
         onStreamFailed?.invoke(song)
@@ -949,11 +991,10 @@ object SongPlayer {
     ): YTPlayerUtils.PlaybackData? {
         val connectivityManager =
             appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val tried = mutableSetOf<String>()
+        val tried = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         suspend fun tryIds(ids:List<String>):YTPlayerUtils.PlaybackData? {
-            val candidates=ids.distinct().filter{it !in tried}.take(3)
+            val candidates=ids.distinct().filter{tried.add(it)}.take(3)
             for(batch in candidates.chunked(2)) {
-            tried.addAll(batch)
             val result=firstPlayable(batch.map {videoId ->
                 val connections=LookupConnections()
                 StreamLookup(cancel={connections.close()}) {
@@ -966,16 +1007,16 @@ object SongPlayer {
             }
             return null
         }
-        tryIds(resolveVideoCandidates(query).take(3))?.let { return it }
-        if (!io.github.unidentified24.spock.data.preferences.isVideoFallbackEnabled(appContext)) {
-            Log.w(TAG, "song candidates exhausted and video fallback disabled for: ${searchTextForPlayback(query)}")
-            return null
+        val filters=buildList {
+            add(YouTube.SearchFilter.FILTER_SONG)
+            if(io.github.unidentified24.spock.data.preferences.isVideoFallbackEnabled(appContext))add(YouTube.SearchFilter.FILTER_VIDEO)
         }
-        // Song results exhausted (e.g. every official upload is age-restricted and
-        // we're not signed in to YouTube). Regular video uploads — lyric videos,
-        // reuploads — usually aren't age-gated: last-resort pass over those.
-        Log.w(TAG, "song candidates exhausted, trying video search for: ${searchTextForPlayback(query)}")
-        tryIds(resolveVideoCandidates(query, YouTube.SearchFilter.FILTER_VIDEO).take(3))?.let { return it }
+        firstPlayable(filters.map {filter ->
+            val connections=LookupConnections()
+            StreamLookup(cancel={connections.close()}) {
+                withContext(connections) {tryIds(resolveVideoCandidates(query,filter).take(3))}
+            }
+        })?.let{return it}
         candidateCache.remove(query+":"+YouTube.SearchFilter.FILTER_SONG)
         candidateCache.remove(query+":"+YouTube.SearchFilter.FILTER_VIDEO)
         Log.e(TAG, "No playable YouTube match")
@@ -1026,6 +1067,8 @@ object SongPlayer {
                     io.github.unidentified24.spock.deezer.DeezerAwareDataSourceFactory(cacheDataSourceFactory(context)),
                 ),
             )
+            .setLoadControl(androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                .setBufferDurationsMs(15000,45000,750,1500).build())
             .setRenderersFactory(renderers)
             .setAudioAttributes(buildAudioAttributes(), handleAudioFocus)
             .setHandleAudioBecomingNoisy(handleAudioFocus)
@@ -1062,6 +1105,8 @@ object SongPlayer {
             // Gapless move onto the preloaded track: it is now the current request.
             preloadedNext = null
             currentRequest = query
+            heardCurrent=player?.isPlaying==true
+            playbackFailed=false
             retriedRequest = null
             val p = player ?: return
             if (p.currentMediaItemIndex > 0) p.removeMediaItems(0, p.currentMediaItemIndex)
@@ -1078,6 +1123,8 @@ object SongPlayer {
 
         override fun onIsPlayingChanged(isPlaying:Boolean) {
             if(isPlaying) {
+                heardCurrent=true
+                PlaybackDiagnostics.event("Audio playback started")
                 playbackMessage="";playbackFailed=false
                 val state=boundState;val q=state?.queue?.value.orEmpty()
                 val i=q.indexOfFirst{it.url==currentRequest}
@@ -1091,7 +1138,14 @@ object SongPlayer {
             // treating that as a finished song skipped the track the user just picked.
             if (playbackState == Player.STATE_ENDED && !isCrossfading &&
                 (player?.mediaItemCount ?: 0) > 0
-            ) onTrackEnded?.invoke()
+            ) {
+                val p=player
+                if(PlaybackCompletion.isNaturalEnd(heardCurrent,p?.currentPosition ?: 0,p?.duration ?: 0,(durationRegistry[currentRequest] ?: 0).toLong()))onTrackEnded?.invoke()
+                else {
+                    streamCache[currentRequest]?.let{rejectedStreams.add(it)}
+                    reportStreamFailure(currentRequest)
+                }
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -1100,6 +1154,8 @@ object SongPlayer {
                 ?: currentRequest.takeIf { it.isNotBlank() } ?: return
             preloadedNext = null
             Log.w(TAG, "mid-play error for $song: ${error.errorCodeName} (code ${error.errorCode})")
+            streamCache[song]?.let{rejectedStreams.add(it)}
+            if(rejectedStreams.size>128)rejectedStreams.clear()
             // Drop the cached URL — it may have expired (Deezer CDN, YouTube signing).
             streamExpiry.remove(song)
         streamCache.remove(song)
@@ -1116,7 +1172,7 @@ object SongPlayer {
             scope.launch {
                 if (isIoError) {
                     // Brief wait so a transient network blip has time to recover.
-                    delay(3_000L)
+                    delay(350L)
                     // User may have manually skipped while we were waiting — bail if so.
                     if (currentRequest != song) return@launch
                     val fresh = resolveStreamUrl(song, ctx, forPlayback = true)
@@ -1344,9 +1400,9 @@ object SongPlayer {
     private suspend fun managePreload(ctx: Context, crossfadeMs: Int) {
         if(!io.github.unidentified24.spock.data.preferences.isPreloadEnabled(ctx))return
         // Short-lived lossless and Deezer URLs must be minted at the actual play.
-        if((losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(ctx) &&
+        val shortLived=(losslessStreaming && io.github.unidentified24.spock.data.preferences.isFlacSourceEnabled(ctx) &&
             io.github.unidentified24.spock.data.preferences.currentStreamingQuality(ctx).lossless) ||
-            (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(ctx)))return
+            (deezerEnabled && io.github.unidentified24.spock.data.preferences.isDeezerRaceEnabled(ctx))
         val state = boundState ?: return
         val p = player ?: return
         val next = withContext(Dispatchers.Main) {
@@ -1367,7 +1423,7 @@ object SongPlayer {
         val (pos, dur, ready) = withContext(Dispatchers.Main) {
             Triple(p.currentPosition, p.duration, p.playbackState == Player.STATE_READY && p.mediaItemCount == 1)
         }
-        if (!ready || dur <= 0 || dur - pos > 30_000L) return
+        if (!ready || dur <= 0 || dur - pos > (if(shortLived)8000L else 30000L)) return
         val song = next
         preloading = true
         try {

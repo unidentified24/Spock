@@ -52,7 +52,22 @@ import kotlinx.coroutines.delay
             importing=false
         }}
     }
+    val permission=if(android.os.Build.VERSION.SDK_INT>=33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    fun scan() {
+        importing=true
+        scope.launch {
+            runCatching {withContext(Dispatchers.IO){
+                val found=io.github.unidentified24.spock.data.local.DeviceAudio.scan(context)
+                addLocalTracks(context,found);getLocalSongs(context)
+            }}.onSuccess{songs=it;note="${it.size} local tracks · files stay in their original folders"}
+                .onFailure{note="Device access unavailable. You can still use Add files or Add folder."}
+            importing=false
+        }
+    }
+    val access=androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()){granted->if(granted)scan()else note="Choose individual files or a folder, or grant audio access to scan your phone."}
+    LaunchedEffect(Unit){if(androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED)scan()}
     StudioCollection(navController,"Made local.",note,songs.firstOrNull()?.coverUri.orEmpty(),songs,extra={
+        Button(enabled=!importing,onClick={if(androidx.core.content.ContextCompat.checkSelfPermission(context,permission)==android.content.pm.PackageManager.PERMISSION_GRANTED)scan()else access.launch(permission)}) {Text("Find music on this phone")}
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             OutlinedButton(enabled=!importing,onClick={picker.launch(arrayOf("audio/*"))},shape=RoundedCornerShape(14.dp)){Text(if(importing)"Importing…" else "Add files")}
             TextButton(enabled=!importing,onClick={folder.launch(null)}){Text("Add folder")}

@@ -33,7 +33,9 @@ class ChunkedDataSource(
     override fun open(dataSpec: DataSpec): Long {
         baseSpec = dataSpec
         position = dataSpec.position
-        val total = dataSpec.uri.getQueryParameter("clen")?.toLongOrNull()
+        val network=dataSpec.uri.scheme in setOf("http","https") &&
+            (dataSpec.uri.host?.endsWith(".googlevideo.com")==true || dataSpec.uri.host=="googlevideo.com")
+        val total = if(network)dataSpec.uri.getQueryParameter("clen")?.toLongOrNull() else null
         if (dataSpec.length != C.LENGTH_UNSET.toLong() || total == null) {
             passthrough = true
             chunkOpen = true

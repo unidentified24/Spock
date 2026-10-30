@@ -71,7 +71,7 @@ fun AccountScreen(navController:NavController) {
         item{StudioSection("Your controls")}
         item {
             Column(Modifier.padding(horizontal=20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                StudioAction("Settings","Audio, FLAC, sources, themes & updates",Icons.Default.Settings) {navController.navigate(Routes.Settings.route)}
+                StudioAction("Settings","Sound, appearance & updates",Icons.Default.Settings) {navController.navigate(Routes.Settings.route)}
                 StudioAction("Listening history","Your recent rotation",Icons.Default.History) {navController.navigate(Routes.History.route)}
                 StudioAction("Connected music","YouTube, Deezer & lossless setup",Icons.Default.GraphicEq) {navController.navigate(Routes.Settings.route+"?section=sources")}
             }

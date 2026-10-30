@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 @Composable
-fun SettingsScreen(navController:NavController,section:String="sources") {
+fun SettingsScreen(navController:NavController,section:String="sound") {
     val context=LocalContext.current
     var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"about"->3;else->0})}
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=180.dp)) {
@@ -60,6 +60,11 @@ fun SettingsScreen(navController:NavController,section:String="sources") {
                     Text("Spock ${io.github.unidentified24.spock.BuildConfig.VERSION_NAME}",color=Color.White,style=MaterialTheme.typography.headlineMedium)
                     Text("Interface ${io.github.unidentified24.spock.BuildConfig.UI_VERSION}",color=AppPalette)
                     UpdateSettings()
+                    TextButton(onClick={
+                        val clipboard=context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Spock playback report",io.github.unidentified24.spock.playback.PlaybackDiagnostics.report()))
+                        android.widget.Toast.makeText(context,"Playback report copied",android.widget.Toast.LENGTH_SHORT).show()
+                    }) {Text("Copy playback report")}
                     StudioAction("Source & credits","Independent, open source · GPL v3",Icons.Default.Code){
                         context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/unidentified24/Spock")))
                     }

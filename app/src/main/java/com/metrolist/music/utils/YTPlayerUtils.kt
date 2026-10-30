@@ -52,6 +52,7 @@ object YTPlayerUtils {
     private val MAIN_CLIENT: YouTubeClient = ANDROID_MUSIC
 
     private val STREAM_FALLBACK_CLIENTS: Array<YouTubeClient> = arrayOf(
+        WEB_REMIX,
         TVHTML5,
         ANDROID_VR_1_65_10,
         ANDROID_VR_1_43_32,
@@ -275,6 +276,15 @@ object YTPlayerUtils {
                 }
 
                 Timber.tag(logTag).d("Fetching player response for fallback client: ${client.clientName}")
+                // Native URLs can be refused even for unrestricted recordings.
+                // Prepare the supported web-token path whenever it is reached,
+                // rather than only when the first response says age restricted.
+                if(client.useWebPoTokens && poToken==null) {
+                    if(sessionId==null)sessionId=kotlinx.coroutines.withTimeoutOrNull(3000){YouTube.visitorData().getOrNull()}.also{YouTube.visitorData=it}
+                    val visitor=sessionId
+                    if(visitor!=null)poToken=kotlinx.coroutines.withTimeoutOrNull(6000){poTokenGenerator.getWebClientPoToken(videoId,visitor)}
+                    if(poToken==null)continue
+                }
                 // Only pass poToken for clients that support it
                 val clientPoToken = if (client.useWebPoTokens) poToken?.playerRequestPoToken else null
                 // Skip signature timestamp for age-restricted (faster), use it for normal content
@@ -286,7 +296,7 @@ object YTPlayerUtils {
                         client,
                         clientSigTimestamp,
                         clientPoToken,
-                        authenticated = false,
+                        authenticated = client == WEB_REMIX && isLoggedIn,
                     ).getOrNull()
             }
 

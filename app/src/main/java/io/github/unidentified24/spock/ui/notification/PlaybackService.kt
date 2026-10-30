@@ -208,6 +208,7 @@ class PlaybackService : MediaLibraryService() {
      * stop instead of wrapping around, which replayed the same song on a single.
      */
     private fun onTrackEnded() {
+        if(SongPlayer.playbackFailed)return
         if (currentSongState.repeat.value) {
             SongPlayer.seekTo(0)
             SongPlayer.play()

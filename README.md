@@ -1,6 +1,10 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.0 uses app ID `io.github.unidentified24.spock`, version code 20 and interface revision 2.0. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.1 uses app ID `io.github.unidentified24.spock`, version code 21 and interface revision 2.1. Android 8.0+.
+
+## Spock 2.1 reliability update
+
+Sources must prepare buffered audio before winning. Failed/preview streams do not automatically skip through the queue. Device-wide audio discovery is available from Local music with permission, alongside file/folder picking. Settings opens Sound; Connected Music opens Sources. The S logo now uses parallel music lines. See BUILD_REPORT.md for validation limits and tradeoffs. Settings → About can copy a local playback report for diagnosing failed starts.
 
 ## Spock 2.0
 

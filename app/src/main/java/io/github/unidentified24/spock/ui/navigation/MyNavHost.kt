@@ -149,12 +149,12 @@ fun MyNavHost(
             DownloadsScreen(navHostController)
         }
 
-        composable("${Routes.Settings.route}?section={section}", arguments=listOf(navArgument("section"){defaultValue="sources"})){ entry ->
+        composable("${Routes.Settings.route}?section={section}", arguments=listOf(navArgument("section"){defaultValue="sound"})){ entry ->
             LaunchedEffect(playerState) {
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            SettingsScreen(navHostController,entry.arguments?.getString("section") ?: "sources")
+            SettingsScreen(navHostController,entry.arguments?.getString("section") ?: "sound")
         }
 
         composable(Routes.History.route){
