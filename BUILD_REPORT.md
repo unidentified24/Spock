@@ -5,7 +5,7 @@ Version code: 30
 UI version: 3.0  
 Application ID: `io.github.unidentified24.spock`
 
-This build was created from the Codex working copy at `work/spock`; the original `Documents/Spock` folder was not edited. The final APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.apk`.
+The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.apk`. A source-only archive is available at `outputs/Spock-3.0-source.zip`. The original `Documents/Spock` folder was not edited.
 
 ## Playback continuity and local music
 
@@ -21,9 +21,11 @@ This build was created from the Codex working copy at `work/spock`; the original
 - Unit tests: **141 passed, 0 failed** (131 app, 8 YouTube/Innertube, 2 Spotify).
 - APK signature: **verified** with APK Signature Scheme v2.
 - Upgrade certificate: **matches Spock 2.8** (`1a9e5c4a5af8434f0c40fdc61a830021d8cb692b6f06e6807a973d9055c35161`).
-- Emulator playback test: **not run**. The configured API 37 emulator exited before appearing in ADB, so background buffering and continuous-play behavior still need device/emulator verification.
-- GitHub source synchronization and live release publishing are not included in this build report; release publishing remains deferred.
+- Emulator playback test: **not run**. The configured API 37 emulator exited before appearing in ADB, so background-playback and continuous-play behavior still need device testing.
+- Source sync: **committed to the public `main` branch** at `7edd325023d72e14d70f214d4f6ce728cb442a4c`.
+- Live release publishing remains deferred. The public repository history was preserved by the source commit and was not rewritten; the GitHub connector used here only creates commits with a parent, so it could not create the authorized clean-history root commit.
 
 ## APK checksum
 
 SHA-256: `078265580426B6F90A955B07891E4097ADA7629CBBEEB0785D7E7068AEC8DCB1`
+
