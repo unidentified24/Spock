@@ -53,7 +53,8 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
                     UpdateSettings()
                     TextButton(onClick={
                         val clipboard=context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Spock playback report",io.github.unidentified24.spock.playback.PlaybackDiagnostics.report()+"\nLast app error:\n"+context.getSharedPreferences("diagnostics",0).getString("last_crash","None recorded")))
+                        val diagnostics=context.getSharedPreferences("diagnostics",0)
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Spock playback report",io.github.unidentified24.spock.playback.PlaybackDiagnostics.report()+"\nLast startup error:\n"+diagnostics.getString("startup_error","None recorded")+"\nLast app crash:\n"+diagnostics.getString("last_crash","None recorded")))
                         android.widget.Toast.makeText(context,"Playback report copied",android.widget.Toast.LENGTH_SHORT).show()
                     }) {Text("Copy playback report")}
                     StudioAction("Source & credits","Independent, open source · GPL v3",Icons.Default.Code){
@@ -217,3 +218,4 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
         }}
     }},confirmButton={TextButton(onClick={showHistory=false}){Text("Done")}})
 }
+
