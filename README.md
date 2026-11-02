@@ -1,8 +1,15 @@
+Warning: truncated output (original token count: 3278)
+Total output lines: 109
+
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 3.0 uses app ID `io.github.unidentified24.spock`, version code 30 and UI revision 3.0. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 3.0.1 uses app ID `io.github.unidentified24.spock`, version code 31 and UI revision 3.0. Android 8.0+.
 
 [**Download APK releases →**](https://github.com/unidentified24/Spock/releases) · [Release notes](CHANGELOG.md)
+
+## Spock 3.0.1 — startup crash handling
+
+Optional startup helpers are isolated so a cache or background-work initialization problem does not prevent the app from opening. Crash reports now retain the exception chain and can be copied from **Settings → About → Copy playback report**. This is a maintenance build; the public release remains deferred.
 
 ## Spock 3.0 — personal music, offline tools and listening insights
 
@@ -46,15 +53,7 @@ Include FLAC over Wi-Fi now confirms its saved state and explicitly supports met
 
 The first buffered native source or confirmed Spotify playback starts immediately. A slow browser no longer holds ready audio for 5–14 seconds. Spock promotes the player that already buffered the stream, permits two concurrent preparations and cancels competing requests. The next queue item still prepares quietly while listening; manual selection can reuse its prepared audio too.
 
-Public SoundCloud tracks join Deezer, YouTube and FLAC without an account, personal API key or hosted server. Matching checks title, artist and duration and rejects unexpected alternate recordings. SoundCloud HLS streams play through Media3; progressive audio is also available as a download fallback. HLS playlists are never saved as offline audio. The song menu links to the matched SoundCloud page.
-
-FLAC discovery now includes the modern Monochrome protocol, extra public HiFi candidates, a refreshed verified-server list and five-minute outage backoff. These are community services: probes during development found failing/blocked servers, so this is not a claim that more working FLAC servers are currently available. FLAC lookups cannot hold up another buffered provider. Wi-Fi permits more foreground read-ahead with a bounded next-track buffer; cellular has smaller limits. Browser startup is lazy, idle page polling is reduced and player animation updates are capped at 30 fps.
-
-See BUILD_REPORT.md for measured checks and limits. Live release publishing remains deferred.
-
-## Spock 2.4 playback handoff (previous behavior)
-
-Selected Spotify tracks first use your existing Spotify session for browser playback. While listening, Spock prepares the next track from enabled native sources, preferring the best prepared quality. Two seconds before the end it locks the route: buffered native audio, or the warm Spotify browser session. Local files and downloads remain native and offline. The interface and playback device registration use Spock branding. Connected music → Spock instant start controls the hybrid route; crossfade remains in native-only mode.
+Public SoundCloud tracks join Deezer, YouTube and FLAC without an account, personal API key or hosted server. Matching checks title, artist and duration and rejects unex…278 tokens truncated…m enabled native sources, preferring the best prepared quality. Two seconds before the end it locks the route: buffered native audio, or the warm Spotify browser session. Local files and downloads remain native and offline. The interface and playback device registration use Spock branding. Connected music → Spock instant start controls the hybrid route; crossfade remains in native-only mode.
 
 Browser/account support varies. The signed-in Spotify route and browser-to-native transitions require validation on the user's phone; no claim that every track will play is made. See BUILD_REPORT.md for the startup limits, checks and known constraints. SpotiDuck's streaming approach informed an independent playback bridge; its interface and account connection are not incorporated.
 
@@ -102,3 +101,4 @@ The signed-release updater checks this repository, verifies downloaded packages 
 This is an independent downstream fork of a fork of spotui. The UI rebuild does not erase the inherited playback code or its authorship. [NOTICE.md](NOTICE.md) retains upstream credits and [LICENSE](LICENSE) retains GPL v3. Montserrat's OFL notice is bundled in the source and app. [RESEARCH.md](RESEARCH.md) records the performance research and its limits. [PUBLIC_RELEASE.md](PUBLIC_RELEASE.md) lists remaining public-release checks.
 
 The build report separates automated/emulator checks from live signed-in provider tests. Compilation and public-source probes do not prove reliable playback for every listener or recording.
+
