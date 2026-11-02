@@ -5,7 +5,7 @@ Version code: 31
 UI version: 3.0  
 Application ID: `io.github.unidentified24.spock`
 
-The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.1.apk`. A source-only archive is available at `outputs/Spock-3.0-source.zip`. The original `Documents/Spock` folder was not edited.
+The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.1.apk`. A source-only archive is available at `outputs/Spock-3.0.1-source.zip`. The original `Documents/Spock` folder was not edited.
 
 ## Startup crash hardening
 
