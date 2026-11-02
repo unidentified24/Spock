@@ -1,12 +1,13 @@
 package io.github.unidentified24.spock.data.backup
 
 import kotlinx.serialization.json.*
+import kotlinx.serialization.decodeFromString
 
 /** Portable preferences only. Credentials, URIs, audio files and device caches are never accepted. */
 object SpockDataCodec {
     const val MAX_BYTES=10*1024*1024
     private val settings=mapOf("stream_quality_wifi" to "s","stream_quality_cellular" to "s","download_quality" to "s","preload_enabled" to "b","crossfade_duration_ms" to "i","crossfade_dj_mode" to "b","spock_hybrid_playback" to "b","video_fallback_enabled" to "b","library_grid_view" to "b","lyric_translate_lang" to "s","source_youtube" to "b","source_flac" to "b","soundcloud_enabled" to "b","flac_wifi_requested" to "b")
-    private val fixed=mapOf("appearance" to mapOf("theme" to "s","layout" to "s","player_view" to "s"),"settings_prefs" to settings,"ListeningHistory" to mapOf("entries" to "s"),"listening_meter" to mapOf("ledger" to "s"),"LibraryCache" to mapOf("entries" to "s","followedArtists" to "s"))
+    private val fixed=mapOf("appearance" to mapOf("theme" to "s","layout" to "s","player_view" to "s"),"settings_prefs" to settings,"ListeningHistory" to mapOf("entries" to "s"),"listening_meter" to mapOf("ledger" to "s"),"LibraryCache" to mapOf("entries" to "s","followedArtists" to "s"),"spock_features" to mapOf("options" to "s"),"library_shelf" to mapOf("shelf" to "s"))
     val sections=fixed.keys+setOf("LikedSongs","LikedAlbums","FollowedArtists")
     fun allowed(section:String,key:String)=if(section in setOf("LikedSongs","LikedAlbums","FollowedArtists"))key.isNotBlank()&&key.length<=512&&key.none{it.isISOControl()} else fixed[section]?.containsKey(key)==true
     private fun valid(section:String,key:String,v:JsonElement):Boolean {
@@ -17,6 +18,8 @@ object SpockDataCodec {
         if(!v.isString||v.content.length>MAX_BYTES/2)return false
         val value=v.content
         if(section=="settings_prefs")return when(key){"lyric_translate_lang"->value.length<=12;else->value in setOf("LOW","NORMAL","HIGH","LOSSLESS")}
+        if(section=="spock_features")return runCatching{io.github.unidentified24.spock.features.FeatureSettings.json.decodeFromString<io.github.unidentified24.spock.features.AppOptions>(value);true}.getOrDefault(false)
+        if(section=="library_shelf")return runCatching{io.github.unidentified24.spock.features.FeatureSettings.json.decodeFromString<io.github.unidentified24.spock.features.library.LibraryShelf>(value);value.length<=MAX_BYTES/2}.getOrDefault(false)
         if(section=="appearance")return when(key){"layout"->value in setOf("STUDIO","COMPACT","CLASSIC");"player_view"->value in setOf("ARTWORK","DISC","WAVES","SPECTRUM","ORBIT");else->value.length<=32}
         if(key=="entries"||key=="followedArtists")return runCatching{Json.parseToJsonElement(value) is JsonArray}.getOrDefault(false)
         if(section=="listening_meter")return runCatching{

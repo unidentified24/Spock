@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -16,6 +17,33 @@ import java.util.concurrent.ConcurrentHashMap
  * the local action already succeeded.
  */
 object SpotifySync {
+
+    data class BatchResult(val changed:Int,val total:Int){val complete get()=changed==total}
+    suspend fun addMany(context:Context,playlistId:String,trackIds:List<String>):BatchResult {
+        val ids=trackIds.filter{it.isNotBlank()}.distinct()
+        if(!SpotifyTokenProvider.ensureToken(context))return BatchResult(0,ids.size)
+        var changed=0
+        for(batch in ids.chunked(100)){
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if(Spotify.addTracksToPlaylist(playlistId,batch.map{"spotify:track:$it"}).isFailure)break
+            changed+=batch.size
+        }
+        membershipCache.remove(playlistId);return BatchResult(changed,ids.size)
+    }
+    suspend fun removeMany(context:Context,playlistId:String,trackIds:Set<String>,duplicatesOnly:Boolean=false):BatchResult {
+        if(!SpotifyTokenProvider.ensureToken(context))return BatchResult(0,trackIds.size.coerceAtLeast(1))
+        val tracks=allPlaylistTracks(playlistId)
+        val selected=if(duplicatesOnly)tracks.filter{!it.track?.id.isNullOrBlank()}.groupBy{it.track!!.id}.values.flatMap{it.drop(1)}else tracks.filter{it.track?.id in trackIds}
+        val refs=selected.mapNotNull{item->item.uid?.let{Spotify.PlaylistItemRef("spotify:track:${item.track!!.id}",it)}}
+        if(refs.size!=selected.size)return BatchResult(0,selected.size.coerceAtLeast(1))
+        var changed=0
+        for(batch in refs.chunked(100)){
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if(Spotify.removeTracksFromPlaylist(playlistId,batch).isFailure)break
+            changed+=batch.size
+        }
+        membershipCache.remove(playlistId);return BatchResult(changed,refs.size)
+    }
 
     private const val TAG = "SpotifySync"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

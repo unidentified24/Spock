@@ -32,8 +32,59 @@ object LyricsApi {
     private const val MISS_RETRY_MS = 120_000L
 
     private val cache = java.util.concurrent.ConcurrentHashMap<String, Any>() // Lyrics | Miss
+    private val saved = java.util.concurrent.ConcurrentHashMap<String, Lyrics>()
+    @Volatile private var appContext:android.content.Context?=null
     private val prefetchScope =
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    /** Restore the bounded offline lyric cache. */
+    fun initialize(context:android.content.Context){
+        appContext=context.applicationContext
+        val raw=appContext?.getSharedPreferences("spock_lyrics_cache",0)?.getString("entries",null) ?: return
+        if(raw.length>2_000_000)return
+        runCatching {
+            val root=JSONObject(raw);val keys=root.keys()
+            while(keys.hasNext()){
+                val key=keys.next();val item=root.optJSONObject(key) ?: continue
+                val lines=item.optJSONArray("lines") ?: continue
+                val parsed=(0 until lines.length()).mapNotNull { index->lines.optJSONObject(index)?.let { io.github.unidentified24.spock.data.entity.LyricLine(it.optLong("t"),it.optString("x")) } }
+                if(parsed.isNotEmpty()){
+                    val lyrics=Lyrics(parsed,item.optBoolean("synced"),item.optString("language").takeIf{it.isNotBlank()})
+                    saved[key]=lyrics;cache[key]=lyrics
+                }
+            }
+        }
+    }
+
+    private fun remember(key:String,lyrics:Lyrics){
+        cache[key]=lyrics
+        if(!io.github.unidentified24.spock.features.FeatureSettings.value.lyrics.cache)return
+        saved[key]=lyrics
+        val context=appContext ?: return
+        val root=JSONObject()
+        var remainingChars=1_500_000
+        saved.entries.toList().take(250).forEach { (entry,value)->
+            val lines=JSONArray()
+            value.lines.take(300).forEach { line->
+                if(remainingChars<=0)return@forEach
+                val text=line.text.take(minOf(400,remainingChars));remainingChars-=text.length
+                lines.put(JSONObject().put("t",line.timeMs).put("x",text))
+            }
+            root.put(entry,JSONObject().put("synced",value.synced).put("language",value.language ?: "").put("lines",lines))
+        }
+        context.getSharedPreferences("spock_lyrics_cache",0).edit().putString("entries",root.toString()).apply()
+    }
+
+    fun searchSaved(query:String):List<Pair<String,Lyrics>>{
+        val q=query.trim().lowercase()
+        return saved.entries.asSequence().filter{q.isBlank() || it.key.contains(q) || it.value.lines.any{line->line.text.contains(q,true)}}
+            .take(100).map{it.key to it.value}.toList()
+    }
+
+    fun setPersistentCache(context:android.content.Context,enabled:Boolean){
+        io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(lyrics=it.lyrics.copy(cache=enabled))}
+        if(!enabled){saved.clear();context.applicationContext.getSharedPreferences("spock_lyrics_cache",0).edit().clear().apply()}
+    }
 
     private fun cacheKey(title: String, artist: String) =
         "${cleanTitle(title).lowercase()}|${artist.substringBefore(",").trim().lowercase()}"
@@ -95,7 +146,7 @@ object LyricsApi {
                 ?: fuzzy.await()
                 ?: searchTitleOnly(cleaned, primaryArtist, durationSec)
         }
-        cache[key] = result ?: Miss()
+        if(result!=null)remember(key,result) else cache[key]=Miss()
         return result
     }
 

@@ -1,8 +1,16 @@
 # Spock
 
-An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 2.8 uses app ID `io.github.unidentified24.spock`, version code 28 and interface revision 2.8. Android 8.0+.
+An independent Android music app, rebuilt around a listening room, a personal collection and a listening story. Spock 3.0 uses app ID `io.github.unidentified24.spock`, version code 30 and UI revision 3.0. Android 8.0+.
 
 [**Download APK releases →**](https://github.com/unidentified24/Spock/releases) · [Release notes](CHANGELOG.md)
+
+## Spock 3.0 — personal music, offline tools and listening insights
+
+Spock 3.0 adds a customizable home, expanded player views and themes, playlist and queue tools, listening recaps, lyric caching, `.spockdata` backup/restore, download scheduling/resume, local-folder monitoring, a player widget, launcher shortcuts and an Offline quick tile. Settings include privacy controls, accessibility options, audio effects, update channels and storage information.
+
+The audio path now recovers once from a stalled native stream, resumes Spotify Web playback after temporary audio-focus loss, keeps the playback service through temporary buffering, and prepares radio continuation before the final queued song ends. These recovery paths improve continuity, but external services and individual tracks can still fail. The API 37 emulator was unavailable during final verification, so background-playback behavior still needs device testing.
+
+[Build and test report](BUILD_REPORT.md) · [GitHub releases](https://github.com/unidentified24/Spock/releases) (publishing deferred)
 
 ## Spock 2.8 — original mark and offline playlists
 
@@ -12,7 +20,7 @@ The original sound-bars identity returns as a light vector mark. In-app colors f
 
 Open a playlist and choose **Download playlist**. Completed downloads appear together under **Collection → Downloads → Offline playlists**, preserving the track order and repeated songs while sharing each saved audio file. Track progress, cancellation and missing-only retry use the existing download queue. The playlist list stays available without a Spotify connection. Wait for all playlist pages before starting a batch; incomplete page loads offer refresh rather than silently saving the first page.
 
-Keep Spock open while downloading. Pending transfers do not yet restart automatically after Android terminates the process; completed files and playlist membership persist, and Download remaining tracks resumes the missing items. Removing the offline playlist listing leaves shared songs in Downloads.
+This historical version required Spock to stay open while downloading. The 3.0 download worker now persists queued jobs and resumes them when Android permits background work.
 
 The 2.7 playback resolver is unchanged. Public-song full-file downloads, saved start/end decoding and offline playlist batch/retry checks are documented in BUILD_REPORT.md. Live release publishing remains deferred.
 
@@ -75,10 +83,10 @@ Sources must prepare buffered audio before winning. Failed/preview streams do no
 
 ## Build and install
 
-Use Java 17 and Android SDK platform 34. Set JAVA_HOME and ANDROID_HOME, then:
+Use Java 17 and Android SDK platform 35. Set `JAVA_HOME` and `ANDROID_HOME`, then:
 
 ```sh
-bash gradlew :app:assembleDebug :app:testDebugUnitTest :innertube:testDebugUnitTest :spotify:test
+bash gradlew :app:assembleRelease :app:testReleaseUnitTest :innertube:test :spotify:test
 ```
 
 Release builds use a private stable signing key; see [RELEASING.md](RELEASING.md). Never commit signing files or account credentials. A release signed with the existing Spock key updates 1.7/1.8 without changing the application ID. The legacy spotui-ID install is separate.

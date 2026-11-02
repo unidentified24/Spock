@@ -13,6 +13,7 @@ private const val KEY_POSITION = "positionMs"
 
 /** Saves the track (resets the stored position when the track changed). */
 fun saveLastPlayback(context: Context, song: SongsModel) {
+    if(io.github.unidentified24.spock.features.FeatureSettings.value.privacy.privateListening)return
     if (song.title.isBlank() || song.url.isBlank()) return
     val p = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     val prevId = runCatching { p.getString(KEY_SONG, null)?.let { JSONObject(it).optInt("id", -1) } }
@@ -31,6 +32,7 @@ fun saveLastPlayback(context: Context, song: SongsModel) {
 
 /** Updates just the position of the stored track (called periodically). */
 fun saveLastPosition(context: Context, positionMs: Long) {
+    if(io.github.unidentified24.spock.features.FeatureSettings.value.privacy.privateListening)return
     if (positionMs <= 0) return
     context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         .edit().putLong(KEY_POSITION, positionMs).apply()

@@ -8,6 +8,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +30,14 @@ fun App() {
     val bottomBarPlayerState = rememberSaveable { (mutableStateOf(true)) }
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val request by io.github.unidentified24.spock.features.NavigationRequests.state.collectAsState()
+    LaunchedEffect(request,navBackStackEntry) {
+        val next=request ?: return@LaunchedEffect
+        if(navBackStackEntry==null)return@LaunchedEffect
+        val destination=when(next.page){"local"->Routes.LocalFiles.route;else->next.page}
+        navController.navigate(destination){launchSingleTop=true}
+        io.github.unidentified24.spock.features.NavigationRequests.consumed(next)
+    }
 
     // Control TopBar and BottomBar
     when (navBackStackEntry?.destination?.route) {
@@ -44,8 +55,13 @@ fun App() {
         }
     }
 
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val rail=io.github.unidentified24.spock.ui.theme.currentLayout==io.github.unidentified24.spock.ui.theme.SpockLayout.RAIL && maxWidth>=600.dp
+    CompositionLocalProvider(io.github.unidentified24.spock.ui.navigation.LocalNavigationRail provides rail) {
+    Row(Modifier.fillMaxSize()) {
+    if(rail)io.github.unidentified24.spock.ui.navigation.SpockNavigationRail(navController)
     Scaffold(
-        modifier = Modifier,
+        modifier = Modifier.weight(1f),
         bottomBar = {
             MainBottomNavigation(navController = navController, bottomBarState = bottomBarState, bottomBarPlayerState)
         }
@@ -55,6 +71,9 @@ fun App() {
                 MyNavHost(navHostController = navController, bottomBarState = bottomBarState, bottomBarPlayerState)
             }
         }
+    }
+    }
+    }
     }
 }
 

@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
             SongPlayer.playSong(song.url,this@MainActivity)
         }
     }
-    override fun onNewIntent(incoming:android.content.Intent){super.onNewIntent(incoming);setIntent(android.content.Intent());openAudio(incoming)}
+    override fun onNewIntent(incoming:android.content.Intent){super.onNewIntent(incoming);setIntent(android.content.Intent());openAudio(incoming);io.github.unidentified24.spock.features.NavigationRequests.open(incoming.getStringExtra("spock_page"))}
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val browserHost:()->Unit={if(!isDestroyed)io.github.unidentified24.spock.di.SpotifyWebPlayer.attach(this)}
 
@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?){
 
         super.onCreate(savedInstanceState)
+        io.github.unidentified24.spock.features.NavigationRequests.open(intent?.getStringExtra("spock_page"))
         SongPlayer.onBrowserNeeded=browserHost
 
         // Ask for notification permission (Android 13+) so the media notification shows.

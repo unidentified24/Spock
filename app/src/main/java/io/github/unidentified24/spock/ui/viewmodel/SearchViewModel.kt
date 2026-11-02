@@ -73,7 +73,12 @@ class SearchViewModel @Inject constructor(private val repository: AppRepository,
     fun search(query: String) {
         searchJob?.cancel()
         searchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(150) // short debounce for snappy real-time results
+            delay(150)
+            if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly){
+                val context=io.github.unidentified24.spock.MyApplication.instance
+                val local=(io.github.unidentified24.spock.data.preferences.getDownloadedSongs(context)+io.github.unidentified24.spock.data.preferences.getLocalSongs(context)).distinctBy{it.id}.filter{query.isBlank()||it.title.contains(query,true)||it.singer.contains(query,true)}
+                _songs.value=Response.Success(local);_results.value=Response.Success(SearchResults(songs=local));return@launch
+            }
             repository.searchEverything(query).collect { result ->
                 _results.value = result
                 // Keep the legacy songs flow in sync for any remaining consumers.

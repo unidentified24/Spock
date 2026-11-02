@@ -46,6 +46,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
         val insertAt = (if (cur >= 0) cur + 1 else 0).coerceAtMost(q.size)
         q.add(insertAt, song)
         currentSongState.updateQueue(q)
+        io.github.unidentified24.spock.features.library.QueueArchive.next(song.id,true)
     }
 
     /** Append a track to the end of the queue ("Add to queue"). False if already queued. */
@@ -53,6 +54,7 @@ class PlayerViewModel @Inject constructor(private val currentSongState: CurrentS
         val q = currentSongState.queue.value
         if (q.any { it.id == song.id }) return false
         currentSongState.updateQueue(q + song)
+        io.github.unidentified24.spock.features.library.QueueArchive.next(song.id,false)
         return true
     }
 

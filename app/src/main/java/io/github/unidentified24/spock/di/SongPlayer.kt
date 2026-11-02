@@ -248,6 +248,7 @@ object SongPlayer {
     @Volatile private var requestStartedAt=0L
     private data class StartChoice(val native:PreparedNative?=null)
     private data class PlayerParts(val player:ExoPlayer,val filter:io.github.unidentified24.spock.audio.CrossfadeFilterAudioProcessor,val buffer:ReadAheadLoadControl)
+    private data class PlaybackWatchSnapshot(val state:Int,val playWhenReady:Boolean,val playing:Boolean,val position:Long)
     private fun wifi(context:Context):Boolean {
         val cm=context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         return cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)==true
@@ -300,8 +301,44 @@ object SongPlayer {
     private var webEndDelivered=false
     private var webLastPosition=0L
     private var webLastProgressAt=0L
+    private var webLastReportedPlaying:Boolean?=null
+    private var webAudioManager:android.media.AudioManager?=null
+    private var webFocusRequest:android.media.AudioFocusRequest?=null
+    @Volatile private var webFocusPaused=false
+    private val webFocusListener=android.media.AudioManager.OnAudioFocusChangeListener{change->
+        when(change){
+            android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK->{
+                if(engine==Engine.WEB&&wantsPlayback){webFocusPaused=true;SpotifyWebPlayer.pause();boundState?.updatePlayingState(false);PlaybackDiagnostics.event("Spotify playback paused for temporary audio focus loss")}
+            }
+            android.media.AudioManager.AUDIOFOCUS_GAIN->{
+                if(webFocusPaused&&engine==Engine.WEB&&wantsPlayback){webFocusPaused=false;webLastProgressAt=android.os.SystemClock.elapsedRealtime();SpotifyWebPlayer.resume();boundState?.updatePlayingState(true);PlaybackDiagnostics.event("Spotify playback resumed after audio focus returned")}
+            }
+            android.media.AudioManager.AUDIOFOCUS_LOSS->{
+                if(engine==Engine.WEB){webFocusPaused=false;wantsPlayback=false;SpotifyWebPlayer.pause();abandonWebAudioFocus();boundState?.updatePlayingState(false);PlaybackDiagnostics.event("Spotify playback stopped after permanent audio focus loss")}
+            }
+        }
+    }
+
+    private suspend fun requestWebAudioFocus(context:Context):Boolean=withContext(Dispatchers.Main){
+        val manager=webAudioManager ?: (context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager).also{webAudioManager=it}
+        val request=webFocusRequest ?: android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            .setWillPauseWhenDucked(true).setOnAudioFocusChangeListener(webFocusListener).build().also{webFocusRequest=it}
+        manager.requestAudioFocus(request)==android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonWebAudioFocus(){
+        webFocusPaused=false
+        val manager=webAudioManager ?: return
+        val request=webFocusRequest ?: return
+        if(android.os.Looper.myLooper()==android.os.Looper.getMainLooper())manager.abandonAudioFocusRequest(request)
+        else android.os.Handler(android.os.Looper.getMainLooper()).post{manager.abandonAudioFocusRequest(request)}
+    }
     @Volatile private var webRecoveryUsed=false
+    @Volatile private var nativeRecoveryUsedFor:String?=null
     @Volatile var onEngineChanged:(()->Unit)?=null
+    @Volatile var onPlaybackIntentChanged:(()->Unit)?=null
     @Volatile var onBrowserNeeded:(()->Unit)?=null
     private data class PreparedNative(
         val query:String,val stream:ResolvedStream,val player:ExoPlayer,
@@ -310,7 +347,7 @@ object SongPlayer {
     ) {
         @Volatile var queueOwned=false
         private val discarded=java.util.concurrent.atomic.AtomicBoolean(false)
-        fun discard(){if(discarded.compareAndSet(false,true))player.release()}
+        fun discard(){if(discarded.compareAndSet(false,true)){io.github.unidentified24.spock.audio.AudioEffectRouter.release(player);player.release()}}
     }
     private fun resetNext(keep:PreparedNative?=null) {
         nextPlan.reset();nextPreparation?.cancel();nextPreparation=null;nextPreparationAt=0
@@ -333,6 +370,7 @@ object SongPlayer {
         if(!SpotifyWebPlayer.attached){delay(200);withContext(Dispatchers.Main){onBrowserNeeded?.invoke()}}
         if(!SpotifyWebPlayer.attached)return false
         if(SpotifyWebPlayer.capabilityKnown && !SpotifyWebPlayer.canPlay)return false
+        if(!requestWebAudioFocus(ctx))return false
         withContext(Dispatchers.Main){
             if(generation!=requestGeneration)return@withContext
             webLastPosition=0;webLastProgressAt=android.os.SystemClock.elapsedRealtime()
@@ -354,21 +392,34 @@ object SongPlayer {
         }==true
         if(ready && generation==requestGeneration){
             withContext(Dispatchers.Main){
-                webBackoff.success();heardCurrent=true;playbackMessage="";boundState?.updatePlayingState(true)
+                webBackoff.success();markHeard();playbackMessage="";boundState?.updatePlayingState(true)
                 if(song==restoreQuery && restorePositionMs>0 && restorePositionMs<SpotifyWebPlayer.durationMs-1500)SpotifyWebPlayer.seekTo(restorePositionMs)
                 restoreQuery=null
             }
             return true
         }
+        if(generation==requestGeneration)abandonWebAudioFocus()
         webBackoff.failure(android.os.SystemClock.elapsedRealtime())
         return false
+    }
+
+    private fun markHeard(){
+        if(!heardCurrent){val context=appCtx;val song=boundState?.queue?.value?.firstOrNull{it.url==currentRequest}
+            if(context!=null&&song!=null)io.github.unidentified24.spock.data.preferences.ListeningMeter.heard(context,song)
+        }
+        heardCurrent=true
     }
 
     /** The browser's queue never owns app advancement; each selected track ends once. */
     fun onWebStateChanged(){
         if(engine!=Engine.WEB || !wantsPlayback)return
+        val playing=SpotifyWebPlayer.confirmed&&SpotifyWebPlayer.isPlaying
+        if(webLastReportedPlaying!=playing){
+            if(heardCurrent && !playing)PlaybackDiagnostics.event(if(SpotifyWebPlayer.buffering)"Spotify engine buffering" else "Spotify engine paused while playback remained requested")
+            webLastReportedPlaying=playing
+        }
         if(SpotifyWebPlayer.positionMs>webLastPosition+100){webLastPosition=SpotifyWebPlayer.positionMs;webLastProgressAt=android.os.SystemClock.elapsedRealtime()}
-        if(SpotifyWebPlayer.confirmed && SpotifyWebPlayer.isPlaying){heardCurrent=true;playbackMessage=""}
+        if(playing){markHeard();playbackMessage=""}
         if(SpotifyWebPlayer.ended && !webEndDelivered){
             webEndDelivered=true
             if(PlaybackCompletion.isNaturalEnd(heardCurrent,SpotifyWebPlayer.positionMs,SpotifyWebPlayer.durationMs,(durationRegistry[currentRequest] ?: 0).toLong()))onTrackEnded?.invoke()
@@ -401,6 +452,7 @@ object SongPlayer {
     }
     private suspend fun manageHybridPreload(ctx:Context){
         withContext(Dispatchers.Main){
+            if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly||io.github.unidentified24.spock.features.FeatureSettings.value.comfort.batterySaver){resetNext();return@withContext}
             val song=nextQueueSong()
             val wanted=song?.url
             if(nextPlan.next!=wanted){resetNext();nextPlan.select(wanted)}
@@ -447,6 +499,7 @@ object SongPlayer {
             try{
                 val uri=resolveStreamUrl(song,ctx,forPlayback=true)
                 if(generation!=requestGeneration || !wantsPlayback)return@launch
+                withContext(Dispatchers.Main){abandonWebAudioFocus()}
                 SpotifyWebPlayer.stopForNative()
                 if(uri==null){withContext(Dispatchers.Main){if(generation==requestGeneration)reportStreamFailure(song)};return@launch}
                 restoreQuery=song;restorePositionMs=position
@@ -456,7 +509,39 @@ object SongPlayer {
         }
     }
 
+    /** Recover a stream that stopped advancing without producing an ExoPlayer error. */
+    private fun beginNativeRecovery(ctx:Context, positionMs:Long){
+        val song=currentRequest
+        if(song.isBlank() || nativeRecoveryUsedFor==song || !wantsPlayback || engine!=Engine.NATIVE)return
+        val generation=requestGeneration
+        val active=player ?: return
+        // Audio-focus loss and user pauses set playWhenReady=false; never override them.
+        if(!active.playWhenReady || active.playbackState==Player.STATE_ENDED)return
+        nativeRecoveryUsedFor=song
+        PlaybackDiagnostics.event("Stream stalled; refreshing current source at ${positionMs.coerceAtLeast(0)} ms")
+        playRequestJob?.cancel()
+        playRequestJob=scope.launch {
+            try{
+                delay(500)
+                if(generation!=requestGeneration || !wantsPlayback || currentRequest!=song)return@launch
+                invalidateResolvedStream(song)
+                val fresh=resolveStreamUrl(song,ctx,forPlayback=true)
+                if(generation!=requestGeneration || !wantsPlayback || currentRequest!=song)return@launch
+                if(fresh==null){
+                    withContext(Dispatchers.Main){if(generation==requestGeneration)reportStreamFailure(song)}
+                    return@launch
+                }
+                restoreQuery=song
+                restorePositionMs=positionMs.coerceAtLeast(0)
+                startStream(song,fresh,ctx)
+                PlaybackDiagnostics.event("Stream recovery started from saved position")
+            }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}
+             catch(_:Exception){withContext(Dispatchers.Main){if(generation==requestGeneration)reportStreamFailure(song)}}
+        }
+    }
+
     private suspend fun promotePrepared(value:PreparedNative,song:String,generation:Long){
+        abandonWebAudioFocus()
         SpotifyWebPlayer.stopForNative()
         withContext(Dispatchers.Main){
             if(generation!=requestGeneration || !wantsPlayback){value.discard();return@withContext}
@@ -465,9 +550,10 @@ object SongPlayer {
             currentSource=value.stream.source;currentQuality=value.stream.quality
             value.buffer?.active=true
             value.player.setAudioAttributes(buildAudioAttributes(),true);value.player.setHandleAudioBecomingNoisy(true)
+            io.github.unidentified24.spock.audio.AudioEffectRouter.apply(value.player)
             value.player.addListener(midPlayErrorListener)
             onEngineChanged?.invoke();onPlayerSwapped?.invoke(value.player)
-            if(previous!==value.player)previous?.release()
+            if(previous!==value.player)previous?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.release(it);it.release()}
             if(song==restoreQuery && restorePositionMs>0 && (value.player.duration<=0 || restorePositionMs<value.player.duration-1500))value.player.seekTo(restorePositionMs)
             restoreQuery=null
             value.player.volume=1f;value.player.play();playbackMessage=""
@@ -476,16 +562,25 @@ object SongPlayer {
 
     fun playSong(song: String, context: Context, automatic:Boolean=false) {
         val appContext=context.applicationContext
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.privacy.explicitFilter&&explicitRegistry[song]==true){
+            pause();playbackFailed=true;playbackMessage="This track is marked explicit and your filter is on.";onStreamFailed?.invoke(song);return
+        }
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly &&
+            !song.startsWith("content://")&&!song.startsWith("file://")&&
+            io.github.unidentified24.spock.data.preferences.downloadedPathForQuery(appContext,song)==null){
+            pause();playbackFailed=true;playbackMessage="This track isn't saved. Turn off Offline only or choose downloaded music."
+            onStreamFailed?.invoke(song);return
+        }
         val prepared=preparedNative?.takeIf{preparedUsable(it,song) && (!automatic || nextPlan.route==HybridPlan.Route.NATIVE)}
         requestGeneration++;val generation=requestGeneration
         requestStartedAt=android.os.SystemClock.elapsedRealtime();PlaybackDiagnostics.event("Track selected; concurrent audio start")
         playRequestJob?.cancel();playbackLookups.toList().forEach{it.cancel()}
         resetNext(prepared);cancelCrossfade()
-        appCtx=appContext;currentRequest=song;wantsPlayback=true;heardCurrent=false
-        playbackFailed=false;playbackMessage="Spock · finding audio…";retriedRequest=null;preloadedNext=null;webEndDelivered=false;webRecoveryUsed=false
+        appCtx=appContext;currentRequest=song;wantsPlayback=true;heardCurrent=false;nativeRecoveryUsedFor=null
+        playbackFailed=false;playbackMessage="Spock · finding audio…";retriedRequest=null;preloadedNext=null;webEndDelivered=false;webRecoveryUsed=false;webLastReportedPlaying=null
         rejectedStreams.clear()
         runCatching{player?.pause();player?.clearMediaItems()}
-        SpotifyWebPlayer.pause();engine=Engine.NONE;onEngineChanged?.invoke()
+        abandonWebAudioFocus();SpotifyWebPlayer.pause();engine=Engine.NONE;onEngineChanged?.invoke()
         startPositionWatch()
         playRequestJob=scope.launch {
             var native:PreparedNative?=prepared
@@ -583,6 +678,7 @@ object SongPlayer {
 
     /** Prepare one next-track match, without racing short-lived transport URLs. */
     fun prefetch(song:String,context:Context) {
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.comfort.batterySaver||io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly)return
         if(song.isBlank() || song==matchPrefetchKey || candidateCache.containsKey(song+":"+YouTube.SearchFilter.FILTER_SONG) || webPlaybackActive() ||
             !io.github.unidentified24.spock.data.preferences.isPreloadEnabled(context) ||
             !io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(context))return
@@ -607,7 +703,7 @@ object SongPlayer {
         mediaCache ?: synchronized(this) {
             mediaCache ?: androidx.media3.datasource.cache.SimpleCache(
                 java.io.File(context.cacheDir, "media"),
-                androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(256L * 1024 * 1024),
+                androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(io.github.unidentified24.spock.features.FeatureSettings.value.storage.cacheMiB.coerceIn(32,8192).toLong() * 1024 * 1024),
                 androidx.media3.database.StandaloneDatabaseProvider(context),
             ).also { mediaCache = it }
         }
@@ -699,6 +795,7 @@ object SongPlayer {
             }
             return song
         }
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly)return null
         alternativeStreamForPlayback(song, appContext)?.let { alt ->
             invalidateResolvedStream(song)
             return when {
@@ -886,6 +983,7 @@ object SongPlayer {
      *  can skip to the next track instead of leaving playback silent. */
     fun reportStreamFailure(song:String) {
         if(currentRequest!=song)return
+        abandonWebAudioFocus()
         PlaybackDiagnostics.event("Stopped on failed audio; automatic skip blocked")
         playbackFailed=true
         playbackMessage="No playable audio found. Retry or check your sources."
@@ -1300,6 +1398,7 @@ object SongPlayer {
             player = p
             currentPlayerFilter = filter
             p.addListener(midPlayErrorListener)
+            io.github.unidentified24.spock.audio.AudioEffectRouter.apply(p)
             onPlayerCreated?.invoke(p)
         }
     }
@@ -1322,7 +1421,9 @@ object SongPlayer {
             // Gapless move onto the preloaded track: it is now the current request.
             preloadedNext = null
             currentRequest = query
-            heardCurrent=player?.isPlaying==true
+            nativeRecoveryUsedFor=null
+            heardCurrent=false
+            if(player?.isPlaying==true)markHeard()
             playbackFailed=false
             retriedRequest = null
             val p = player ?: return
@@ -1336,19 +1437,24 @@ object SongPlayer {
         // mirror it so the in-app button doesn't keep showing the old state.
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if(engine!=Engine.NATIVE)return
+            if(!playWhenReady)PlaybackDiagnostics.event("Playback paused or interrupted (platform reason $reason)")
             if (!isCrossfading) boundState?.updatePlayingState(playWhenReady)
         }
 
         override fun onIsPlayingChanged(isPlaying:Boolean) {
             if(engine!=Engine.NATIVE)return
             if(isPlaying) {
-                heardCurrent=true
+                markHeard()
                 PlaybackDiagnostics.event("Audio started after ${android.os.SystemClock.elapsedRealtime()-requestStartedAt} ms: $currentSource")
                 playbackMessage="";playbackFailed=false
                 val state=boundState;val q=state?.queue?.value.orEmpty()
                 val i=q.indexOfFirst{it.url==currentRequest}
                 if(i>=0)q.getOrNull(i+1)?.let{next->appCtx?.let{prefetch(next.url,it)}}
             }
+        }
+
+        override fun onAudioSessionIdChanged(audioSessionId:Int){
+            if(engine==Engine.NATIVE)player?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.apply(it)}
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1428,7 +1534,15 @@ object SongPlayer {
         return player?.isPlaying ?: false
     }
 
+    /** True while playback should survive temporary buffering or UI teardown. */
+    fun isPlaybackWanted():Boolean=wantsPlayback
+
     fun webPlaybackActive(): Boolean = engine==Engine.WEB
+    fun applySoundOptions(){
+        player?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.apply(it)}
+        preparedNative?.player?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.apply(it)}
+        secondaryPlayer?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.apply(it)}
+    }
 
     // ── Session restore (survive app restarts) ──
     // Set at launch from the persisted playback state; the first playSong for
@@ -1445,13 +1559,15 @@ object SongPlayer {
 
     fun play() {
         wantsPlayback=true
+        onPlaybackIntentChanged?.invoke()
         if (webPlaybackActive()) {
             val ctx=appCtx ?: return
             if(!heardCurrent){playSong(currentRequest,ctx);return}
-            SpotifyWebPlayer.resume();webRecoveryUsed=false;webLastProgressAt=android.os.SystemClock.elapsedRealtime()
             val generation=requestGeneration
             playRequestJob?.cancel()
             playRequestJob=scope.launch{
+                if(!requestWebAudioFocus(ctx)){if(generation==requestGeneration&&wantsPlayback)beginWebRecovery(ctx);return@launch}
+                withContext(Dispatchers.Main){if(generation==requestGeneration&&wantsPlayback){webFocusPaused=false;SpotifyWebPlayer.resume();webRecoveryUsed=false;webLastProgressAt=android.os.SystemClock.elapsedRealtime()}}
                 val resumed=kotlinx.coroutines.withTimeoutOrNull(5000){
                     while(generation==requestGeneration && wantsPlayback){
                         if(SpotifyWebPlayer.confirmed && SpotifyWebPlayer.isPlaying)return@withTimeoutOrNull true
@@ -1474,10 +1590,11 @@ object SongPlayer {
 
     fun pause() {
         wantsPlayback=false
+        onPlaybackIntentChanged?.invoke()
         playRequestJob?.cancel()
         playbackLookups.toList().forEach{it.cancel()}
         cancelCrossfade()
-        if (webPlaybackActive()) { SpotifyWebPlayer.pause(); return }
+        if (webPlaybackActive()) { SpotifyWebPlayer.pause();abandonWebAudioFocus();return }
         player?.let {
             it.playWhenReady = false
             // Remember where we stopped so a relaunch can resume mid-track.
@@ -1489,7 +1606,7 @@ object SongPlayer {
     }
 
     fun stop() {
-        wantsPlayback=false;requestGeneration++;positionWatchJob?.cancel();resetNext();SpotifyWebPlayer.pause();engine=Engine.NONE;onEngineChanged?.invoke()
+        wantsPlayback=false;onPlaybackIntentChanged?.invoke();requestGeneration++;positionWatchJob?.cancel();resetNext();SpotifyWebPlayer.pause();abandonWebAudioFocus();engine=Engine.NONE;onEngineChanged?.invoke()
         playRequestJob?.cancel()
         playbackLookups.toList().forEach { it.cancel() }
         cancelCrossfade()
@@ -1504,13 +1621,13 @@ object SongPlayer {
     }
 
     fun release() {
-        wantsPlayback=false;requestGeneration++;resetNext();SpotifyWebPlayer.release();engine=Engine.NONE
+        wantsPlayback=false;onPlaybackIntentChanged?.invoke();requestGeneration++;resetNext();SpotifyWebPlayer.release();abandonWebAudioFocus();engine=Engine.NONE
         matchPrefetch?.cancel()
         playRequestJob?.cancel()
         playbackLookups.toList().forEach { it.cancel() }
         positionWatchJob?.cancel()
         cancelCrossfade()
-        player?.release()
+        player?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.release(it);it.release()}
         player = null
     }
 
@@ -1580,7 +1697,7 @@ object SongPlayer {
         crossfadeJob = null
         currentPlayerFilter?.enabled = false
         secondaryPlayerFilter?.enabled = false
-        runCatching { secondaryPlayer?.release() }
+        runCatching { secondaryPlayer?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.release(it);it.release()} }
         secondaryPlayer = null
         secondaryPlayerFilter = null
         player?.volume = 1f
@@ -1595,6 +1712,9 @@ object SongPlayer {
     private fun startPositionWatch() {
         positionWatchJob?.cancel()
         positionWatchJob = scope.launch {
+            var lastObservedSong=""
+            var lastObservedPosition=-1L
+            var lastProgressAt=android.os.SystemClock.elapsedRealtime()
             while (isActive) {
                 kotlinx.coroutines.delay(250)
                 val ctx = appCtx ?: continue
@@ -1607,6 +1727,21 @@ object SongPlayer {
                         if (pos > 0) io.github.unidentified24.spock.data.preferences.saveLastPosition(ctx, pos)
                     }
                 }
+                val activePlayer=player ?: continue
+                val snapshot=withContext(Dispatchers.Main){
+                    PlaybackWatchSnapshot(activePlayer.playbackState,activePlayer.playWhenReady,activePlayer.isPlaying,activePlayer.currentPosition)
+                }
+                val request=currentRequest
+                val now=android.os.SystemClock.elapsedRealtime()
+                if(request!=lastObservedSong){lastObservedSong=request;lastObservedPosition=snapshot.position;lastProgressAt=now}
+                else if(snapshot.position>lastObservedPosition+250 || snapshot.position<lastObservedPosition-1000){lastObservedPosition=snapshot.position;lastProgressAt=now}
+                val stalled=io.github.unidentified24.spock.playback.StallRecoveryPolicy.shouldRecover(
+                    playbackWanted=wantsPlayback,nativeEngine=engine==Engine.NATIVE,crossfading=isCrossfading,
+                    playWhenReady=snapshot.playWhenReady,ended=snapshot.state==Player.STATE_ENDED,
+                    buffering=snapshot.state==Player.STATE_BUFFERING,playing=snapshot.playing,
+                    elapsedWithoutProgressMs=now-lastProgressAt,
+                )
+                if(stalled){beginNativeRecovery(ctx,snapshot.position);lastProgressAt=now}
                 if(io.github.unidentified24.spock.data.preferences.isWebPlaybackEnabled(ctx)){
                     manageHybridPreload(ctx)
                     recoverStalledWeb(ctx)
@@ -1784,7 +1919,7 @@ object SongPlayer {
             incoming.setHandleAudioBecomingNoisy(true)
             // Error recovery and end-of-track detection follow the promoted player.
             incoming.addListener(midPlayErrorListener)
-            runCatching { old?.stop(); old?.release() }
+            runCatching { old?.stop();old?.let{io.github.unidentified24.spock.audio.AudioEffectRouter.release(it);it.release()} }
             isCrossfading = false
             // Now that the new track is the sole audio source, switch the in-app UI
             // (cover art, canvas, title) and update the playback identity for error recovery.
@@ -1794,6 +1929,7 @@ object SongPlayer {
                     next.coverUri, next.title, next.singer, true,
                     next.id, pendingNextSongIdx, next.album,
                 )
+                heardCurrent=false;if(incoming.isPlaying)markHeard()
                 pendingNextSong = null
             }
             // Re-bind the media session to the new player.

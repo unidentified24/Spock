@@ -23,13 +23,15 @@ import kotlinx.coroutines.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
-enum class PlayerView(val label:String){ARTWORK("Artwork"),DISC("Record"),WAVES("Sound waves"),SPECTRUM("Spectrum"),ORBIT("Orbit")}
+enum class PlayerView(val label:String){ARTWORK("Artwork"),DISC("Record"),WAVES("Sound waves"),SPECTRUM("Spectrum"),ORBIT("Orbit"),POSTER("Poster"),TILES("Mosaic"),TYPE("Typography"),HORIZON("Horizon")}
 private data class TrackArt(val bitmap:Bitmap,val primary:Color,val secondary:Color)
 
-@Composable fun PlayerPresentation(title:String,cover:String,playing:Boolean,maxArtSize:Dp=440.dp) {
+@Composable fun PlayerPresentation(title:String,cover:String,playing:Boolean,maxArtSize:Dp=440.dp,onColors:(Color,Color)->Unit={_,_->}) {
     val context=LocalContext.current.applicationContext
+    val comfort=LocalComfort.current
     var view by remember {mutableStateOf(PlayerView.entries.firstOrNull{it.name==context.getSharedPreferences("appearance",0).getString("player_view",null)} ?: PlayerView.ARTWORK)}
     var expanded by remember {mutableStateOf(false)}
+    var fullscreen by remember{mutableStateOf(false)}
     var art by remember(cover){mutableStateOf<TrackArt?>(null)}
     // One small cached image per cover; palette extraction never runs on the UI/audio thread.
     LaunchedEffect(cover) {
@@ -46,10 +48,18 @@ private data class TrackArt(val bitmap:Bitmap,val primary:Color,val secondary:Co
     }
     val primary=art?.primary ?: AppPalette
     val secondary=art?.secondary ?: SecondaryPalette
+    LaunchedEffect(primary,secondary){onColors(primary,secondary)}
+    if(fullscreen)androidx.compose.ui.window.Dialog(onDismissRequest={fullscreen=false},properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
+        Box(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding(),contentAlignment=Alignment.Center){
+            art?.let{Image(it.bitmap.asImageBitmap(),title,Modifier.fillMaxSize(),contentScale=ContentScale.Fit)} ?: StudioCover(cover,Modifier.fillMaxWidth().aspectRatio(1f),title)
+            TextButton(onClick={fullscreen=false},modifier=Modifier.align(Alignment.TopEnd).padding(16.dp)){Text("Close artwork",color=Color.White)}
+        }
+    }
     var audible by remember{mutableStateOf(false)}
-    LaunchedEffect(playing,view){audible=false;if(playing && view!=PlayerView.ARTWORK)while(isActive){audible=io.github.unidentified24.spock.di.SongPlayer.isPlaying();delay(500)}}
+    LaunchedEffect(playing,view,comfort.reduceMotion,comfort.batterySaver){audible=false;if(playing && view!=PlayerView.ARTWORK&&!comfort.reduceMotion&&!comfort.batterySaver)while(isActive){audible=io.github.unidentified24.spock.di.SongPlayer.isPlaying();delay(500)}}
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
+            TextButton(onClick={fullscreen=true}){Text("Full screen")}
             Box {
                 TextButton(onClick={expanded=true}){Text("${view.label} ▾")}
                 DropdownMenu(expanded,onDismissRequest={expanded=false}){
@@ -60,8 +70,31 @@ private data class TrackArt(val bitmap:Bitmap,val primary:Color,val secondary:Co
         Box(Modifier.align(Alignment.CenterHorizontally).widthIn(max=maxArtSize).fillMaxWidth().aspectRatio(1f).clip(StudioShape).background(Brush.linearGradient(listOf(primary.copy(alpha=.28f),GridBackground,secondary.copy(alpha=.18f)))),contentAlignment=Alignment.Center) {
             if(view==PlayerView.ARTWORK) {
                 StudioCover(cover,Modifier.fillMaxSize().padding(12.dp),title)
+            }else if(view==PlayerView.POSTER){
+                Column(Modifier.fillMaxSize().padding(18.dp),verticalArrangement=Arrangement.SpaceBetween){
+                    StudioCover(cover,Modifier.weight(1f).fillMaxWidth(),title)
+                    Text(title,style=MaterialTheme.typography.headlineMedium,color=Color.White,maxLines=2,modifier=Modifier.padding(top=16.dp))
+                }
+            }else if(view==PlayerView.TILES){
+                Column(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    repeat(2){row->Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(8.dp)){repeat(2){column->Box(Modifier.weight(1f).fillMaxHeight().clip(StudioShape)){
+                        StudioCover(cover,Modifier.fillMaxSize().graphicsLayer{scaleX=1.7f;scaleY=1.7f;translationX=(if(column==0)-1 else 1)*size.width*.12f;translationY=(if(row==0)-1 else 1)*size.height*.12f},title)
+                    }}}}
+                }
+            }else if(view==PlayerView.TYPE){
+                Column(Modifier.fillMaxSize().padding(24.dp),verticalArrangement=Arrangement.SpaceBetween){
+                    Text("SPOCK",style=MaterialTheme.typography.labelLarge,color=secondary)
+                    Text(title,style=MaterialTheme.typography.displaySmall,color=Color.White,maxLines=5)
+                    StudioCover(cover,Modifier.size(72.dp),title)
+                }
+            }else if(view==PlayerView.HORIZON){
+                Box(Modifier.fillMaxSize()){
+                    art?.let{Image(it.bitmap.asImageBitmap(),null,Modifier.fillMaxSize().blur(if(comfort.batterySaver)0.dp else 20.dp),contentScale=ContentScale.Crop)}
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(primary.copy(alpha=.4f),Color.Black.copy(alpha=.75f)))))
+                    StudioCover(cover,Modifier.align(Alignment.Center).fillMaxWidth(.62f).aspectRatio(1f),title)
+                }
             } else {
-                art?.let{Image(it.bitmap.asImageBitmap(),null,Modifier.fillMaxSize().blur(38.dp).alpha(.23f),contentScale=ContentScale.Crop)}
+                if(!comfort.batterySaver)art?.let{Image(it.bitmap.asImageBitmap(),null,Modifier.fillMaxSize().blur(38.dp).alpha(.23f),contentScale=ContentScale.Crop)}
                 AmbientPlayer(view,title,cover,audible,art,primary,secondary)
                 if(view==PlayerView.WAVES || view==PlayerView.SPECTRUM) {
                     Box(Modifier.align(Alignment.TopStart).padding(18.dp)) {StudioCover(cover,Modifier.size(60.dp),title)}

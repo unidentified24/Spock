@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.contentDescription
@@ -35,7 +36,7 @@ import io.github.unidentified24.spock.ui.navigation.Routes
 import io.github.unidentified24.spock.ui.theme.*
 import io.github.unidentified24.spock.ui.viewmodel.PlayerViewModel
 
-val StudioShape get() = RoundedCornerShape(if(currentLayout==SpockLayout.COMPACT)12.dp else 20.dp)
+val StudioShape get() = RoundedCornerShape(when(currentLayout){SpockLayout.COMPACT->12.dp;SpockLayout.EDITORIAL->4.dp;SpockLayout.MINIMAL->0.dp;SpockLayout.GALLERY->28.dp;else->20.dp})
 
 @Composable
 fun SpockMark(modifier: Modifier = Modifier) {
@@ -54,7 +55,8 @@ fun SpockMark(modifier: Modifier = Modifier) {
 
 @Composable
 fun StudioIcon(icon: ImageVector, label: String, modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
-    IconButton(onClick=onClick, modifier=modifier.size(48.dp).clip(RoundedCornerShape(16.dp))
+    val comfort=LocalComfort.current;val haptics=androidx.compose.ui.platform.LocalHapticFeedback.current
+    IconButton(onClick={if(comfort.haptics)haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove);onClick()}, modifier=modifier.size(if(comfort.largeControls)56.dp else 48.dp).clip(RoundedCornerShape(16.dp))
         .background(if(selected) AppPalette else GridBackground)) {
         Icon(icon, label, tint=if(selected) AppBackground else Color.White, modifier=Modifier.size(22.dp))
     }
@@ -89,7 +91,7 @@ fun StudioHeader(nav: NavController, title: String, eyebrow: String = "SPOCK", b
             AccountButton(nav)
         }
         Spacer(Modifier.height(if(currentLayout==SpockLayout.COMPACT)10.dp else 22.dp))
-        Text(title,style=if(currentLayout==SpockLayout.COMPACT)MaterialTheme.typography.headlineMedium else MaterialTheme.typography.displaySmall,color=Color.White,maxLines=3,overflow=TextOverflow.Ellipsis)
+        Text(title,style=when(currentLayout){SpockLayout.COMPACT,SpockLayout.MINIMAL->MaterialTheme.typography.headlineMedium;SpockLayout.EDITORIAL->MaterialTheme.typography.displayMedium.copy(fontFamily=androidx.compose.ui.text.font.FontFamily.Serif);else->MaterialTheme.typography.displaySmall},color=Color.White,maxLines=3,overflow=TextOverflow.Ellipsis)
     }
 }
 
@@ -103,7 +105,7 @@ fun StudioSection(title: String, caption: String? = null) {
 
 @Composable
 fun StudioCard(modifier: Modifier=Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Column(modifier.clip(StudioShape).background(GridBackground).border(1.dp,OutlineSubtle,StudioShape).padding(if(currentLayout==SpockLayout.COMPACT)12.dp else 18.dp),
+    Column(modifier.clip(StudioShape).background(if(currentLayout==SpockLayout.MINIMAL)AppBackground else GridBackground).border(if(currentLayout==SpockLayout.MINIMAL)0.dp else 1.dp,if(currentLayout==SpockLayout.MINIMAL)Color.Transparent else OutlineSubtle,StudioShape).padding(if(currentLayout==SpockLayout.COMPACT)12.dp else 18.dp),
         verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
 }
 
@@ -150,7 +152,8 @@ fun StudioCover(url: String, modifier: Modifier=Modifier, label: String?=null) {
 
 @Composable
 fun StudioChip(label: String, selected: Boolean=false, onClick: () -> Unit) {
-    TextButton(onClick=onClick,shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.textButtonColors(
+    val comfort=LocalComfort.current;val haptics=androidx.compose.ui.platform.LocalHapticFeedback.current
+    TextButton(onClick={if(comfort.haptics)haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove);onClick()},modifier=Modifier.heightIn(min=if(comfort.largeControls)56.dp else 40.dp),shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.textButtonColors(
         containerColor=if(selected) AppPalette else GridBackground,contentColor=if(selected) AppBackground else TextMuted)) {
         Text(label,style=MaterialTheme.typography.labelMedium)
     }
@@ -174,6 +177,7 @@ fun StudioMediaRow(title:String,subtitle:String,cover:String,onClick:()->Unit) {
 @Composable
 fun StudioTrack(song:SongsModel,index:Int,active:Boolean,onPlay:()->Unit,onMenu:()->Unit) {
     Row(Modifier.padding(horizontal=20.dp,vertical=4.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+        .heightIn(min=if(LocalComfort.current.largeControls)84.dp else 64.dp)
         .background(if(active) AppPalette.copy(alpha=.12f) else GridBackground)
         .combinedClickable(onClick=onPlay,onLongClick=onMenu).padding(10.dp),verticalAlignment=Alignment.CenterVertically,
         horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -194,47 +198,77 @@ fun playStudioTrack(vm:PlayerViewModel, songs:List<SongsModel>, index:Int, conte
     SongPlayer.playSong(song.url,context)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StudioCollection(nav:NavController,title:String,subtitle:String,cover:String,songs:List<SongsModel>,loading:Boolean=false,
     extra: @Composable () -> Unit = {},onMenuDismiss:(SongsModel)->Unit={},
-    emptyTitle:String="No tracks here yet",emptyDescription:String="Try refreshing your connection or add some music to this collection.") {
-    val vm:PlayerViewModel=hiltViewModel(); val context=LocalContext.current
-    var menu by remember { mutableStateOf<SongsModel?>(null) }
-    var sort by remember { mutableIntStateOf(0) }
-    val display=remember(songs,sort) { if(sort==1) songs.sortedBy { it.title.lowercase() } else songs }
-    menu?.let { song -> SongOptionsSheet(song,nav,context,onDismiss={ onMenuDismiss(song);menu=null }) }
+    emptyTitle:String="No tracks here yet",emptyDescription:String="Try refreshing your connection or add some music to this collection.",
+    onBulkRemove:(suspend (List<SongsModel>)->Boolean)?=null,onDeduplicate:(suspend ()->Boolean)?=null) {
+    val vm:PlayerViewModel=hiltViewModel();val context=LocalContext.current;val scope=rememberCoroutineScope()
+    var menu by remember{mutableStateOf<SongsModel?>(null)};var sort by remember{mutableStateOf("order")}
+    var query by remember{mutableStateOf("")};var duplicateOnly by remember{mutableStateOf(false)}
+    var selecting by remember{mutableStateOf(false)};var selected by remember{mutableStateOf<Set<Int>>(emptySet())}
+    var saving by remember{mutableStateOf<List<SongsModel>?>(null)};var confirmRemove by remember{mutableStateOf(false)}
+    var dedup by remember{mutableStateOf(false)};var busy by remember{mutableStateOf(false)};var message by remember{mutableStateOf("")}
+    val entries=remember(songs){songs.mapIndexed{i,song->io.github.unidentified24.spock.features.library.PlaylistEntry(i.toString(),song,song.addedAt)}}
+    val policies by io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState()
+    val display=remember(entries,sort,query,duplicateOnly,policies.privacy.explicitFilter){io.github.unidentified24.spock.features.library.PlaylistTools.filtered(entries,query,sort,duplicateOnly).map{it.song}.filter{!policies.privacy.explicitFilter||!it.explicit}}
+    val duplicateCount=remember(entries){io.github.unidentified24.spock.features.library.PlaylistTools.duplicates(entries).values.sumOf{it.size-1}}
+    val picked=songs.filter{it.id in selected}.distinctBy{it.id}
+    menu?.let{song->SongOptionsSheet(song,nav,context,onDismiss={onMenuDismiss(song);menu=null})}
+    saving?.let{AddTracksDialog(it){saving=null}}
+    if(confirmRemove)AlertDialog(onDismissRequest={if(!busy)confirmRemove=false},title={Text(if(dedup)"Remove extra copies?" else "Remove selected tracks?")},text={Column{Text(if(dedup)"Keep the first copy of each track in this playlist." else "Remove every occurrence of the selected tracks from this playlist. Saved audio stays on your device.");if(message.isNotBlank())Text(message,style=MaterialTheme.typography.bodySmall)}},confirmButton={TextButton(enabled=!busy,onClick={busy=true;scope.launch{
+        try{val success=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO){if(dedup)onDeduplicate?.invoke()==true else onBulkRemove?.invoke(picked)==true}
+            message=if(success)"Playlist updated" else "Couldn't update every track. Refresh the playlist and check your connection."
+            if(success){selected=emptySet();confirmRemove=false}
+        }catch(cancelled:kotlinx.coroutines.CancellationException){throw cancelled}catch(_:Exception){message="Couldn't update this playlist. Check your connection and try again."}finally{busy=false}
+    }}){Text(if(busy)"Updating…" else "Remove")}},dismissButton={TextButton(enabled=!busy,onClick={confirmRemove=false}){Text("Cancel")}})
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
-        item { StudioHeader(nav,title,back=true) }
-        item {
-            StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()) {
-                Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)) {
-                    StudioCover(cover,Modifier.size(104.dp))
-                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text(subtitle,color=TextMuted,style=MaterialTheme.typography.bodyMedium,maxLines=4,overflow=TextOverflow.Ellipsis)
-                        Text("${songs.size} TRACKS",color=AppPalette,style=MaterialTheme.typography.labelSmall)
-                    }
+        item{StudioHeader(nav,title,back=true)}
+        item{StudioCard(Modifier.padding(horizontal=20.dp).fillMaxWidth()){
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(18.dp)){
+                StudioCover(cover,Modifier.size(104.dp));Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                    Text(subtitle,color=TextMuted,style=MaterialTheme.typography.bodyMedium,maxLines=4,overflow=TextOverflow.Ellipsis)
+                    Text("${songs.size} TRACKS",color=AppPalette,style=MaterialTheme.typography.labelSmall)
                 }
-                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Button(onClick={ playStudioTrack(vm,display,0,context) },enabled=display.isNotEmpty(),shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)) {
-                        Icon(Icons.Default.PlayArrow,null); Text("Listen")
-                    }
-                    OutlinedButton(onClick={ playStudioTrack(vm,display.shuffled(),0,context) },enabled=display.isNotEmpty(),shape=RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Default.Shuffle,"Shuffle")
-                    }
+            }
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                Button(onClick={playStudioTrack(vm,display,0,context)},enabled=display.isNotEmpty(),shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.PlayArrow,null);Text("Listen")}
+                OutlinedButton(onClick={playStudioTrack(vm,display.shuffled(),0,context)},enabled=display.isNotEmpty(),shape=RoundedCornerShape(14.dp)){Icon(Icons.Default.Shuffle,"Shuffle")}
+            }
+            extra()
+        }}
+        item{Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            OutlinedTextField(query,{query=it},label={Text("Search tracks")},singleLine=true,leadingIcon={Icon(Icons.Default.Search,null)},modifier=Modifier.fillMaxWidth())
+            PreferenceChoice("Sort",sort,listOf("order" to "Playlist order","title" to "Title A–Z","artist" to "Artist A–Z","date" to "Date added · newest first","duration" to "Duration · shortest first")){sort=it}
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                StudioChip(if(selecting)"Done" else "Select",selecting){selecting=!selecting;selected=emptySet()}
+                StudioChip("Duplicates · $duplicateCount",duplicateOnly){duplicateOnly=!duplicateOnly}
+                StudioChip("Save playlist"){saving=songs}
+                if(duplicateOnly&&duplicateCount>0&&onDeduplicate!=null)StudioChip("Remove extra copies"){dedup=true;confirmRemove=true}
+            }
+            if(selecting){
+                Text("${selected.size} selected",color=AppPalette)
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    TextButton(onClick={selected=display.map{it.id}.toSet()}){Text("Select all shown")}
+                    TextButton(enabled=picked.isNotEmpty(),onClick={saving=picked}){Text("Add to playlist")}
+                    TextButton(enabled=picked.isNotEmpty(),onClick={io.github.unidentified24.spock.di.Downloads.downloadAll(picked,context);message="Added to Downloads"}){Text("Download selected")}
+                    TextButton(enabled=picked.isNotEmpty(),onClick={picked.forEach(vm::addToQueue);message="Added to queue"}){Text("Play later")}
+                    if(onBulkRemove!=null)TextButton(enabled=picked.isNotEmpty()&&!loading,onClick={dedup=false;confirmRemove=true}){Text("Remove selected")}
                 }
-                extra()
             }
-        }
-        item {
-            Row(Modifier.fillMaxWidth().padding(20.dp,18.dp,20.dp,8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-                Text("Tracklist",color=Color.White,style=MaterialTheme.typography.titleLarge)
-                StudioChip(if(sort==0) "In order" else "Title A–Z") { sort=1-sort }
+            if(message.isNotBlank())Text(message,color=TextMuted,style=MaterialTheme.typography.bodySmall)
+        }}
+        if(loading)item{Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}}
+        else if(display.isEmpty())item{StudioEmpty(if(query.isNotBlank())"No matching tracks" else if(duplicateOnly)"No duplicate tracks" else emptyTitle,if(query.isNotBlank()||duplicateOnly)"Try another search or filter." else emptyDescription)}
+        itemsIndexed(display,key={i,s->"${s.id}:$i"}){i,song->
+            Row(verticalAlignment=Alignment.CenterVertically){
+                if(selecting)Checkbox(song.id in selected,{checked->selected=if(checked)selected+song.id else selected-song.id})
+                Box(Modifier.weight(1f)){StudioTrack(song,i,vm.currentSongId.value==song.id,{
+                    if(selecting)selected=if(song.id in selected)selected-song.id else selected+song.id
+                    else playStudioTrack(vm,display,i,context)
+                },{if(selecting)selected=selected+song.id else menu=song})}
             }
-        }
-        if(loading) item { Box(Modifier.fillMaxWidth().padding(30.dp),contentAlignment=Alignment.Center) { CircularProgressIndicator() } }
-        else if(display.isEmpty()) item { StudioEmpty(emptyTitle,emptyDescription) }
-        itemsIndexed(display,key={i,s->"${s.id}:$i"}) { i,song ->
-            StudioTrack(song,i,vm.currentSongId.value==song.id,{ playStudioTrack(vm,display,i,context) },{ menu=song })
         }
     }
 }

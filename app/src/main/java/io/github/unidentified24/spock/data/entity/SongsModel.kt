@@ -1,6 +1,7 @@
 package io.github.unidentified24.spock.data.entity
 
-data class SongsModel(
+@kotlinx.serialization.Serializable
+data class SongsModel @JvmOverloads constructor(
     val id : Int,
     val title : String,
     val album : String,
@@ -15,7 +16,15 @@ data class SongsModel(
     val explicit : Boolean = false,
     // Track length in ms (from Spotify). Used to disambiguate the YouTube match:
     // a same-title-different-artist song almost always has a different duration.
-    val durationMs : Int = 0
+    val durationMs : Int = 0,
+    val addedAt:Long=0,
+    val albumId:String="",
+    val artistIds:List<String> = emptyList(),
+    val artistNames:List<String> = emptyList(),
+    val genres:List<String> = emptyList(),
+    val year:Int=0,
+    val trackNumber:Int=0,
+    val albumTrackCount:Int=0,
 ){
     constructor() : this(-1 ,"" ,"" ,"" ,"" ,"", "")
 }

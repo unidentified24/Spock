@@ -31,10 +31,12 @@ import kotlinx.coroutines.delay
 @Composable
 fun SearchScreen(navController:NavController) {
     val vm:SearchViewModel=hiltViewModel(); val response by vm.results.collectAsState()
-    val result=(response as? Response.Success)?.data ?: SearchResults()
     val context=LocalContext.current; var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
+    val options by io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState()
+    val raw=(response as? Response.Success)?.data ?: SearchResults()
+    val result=if(options.privacy.explicitFilter)raw.copy(songs=raw.songs.filter{!it.explicit},episodes=raw.episodes.filter{!it.explicit})else raw
     var tab by remember { mutableIntStateOf(0) }; var menu by remember { mutableStateOf<SongsModel?>(null) }
-    LaunchedEffect(query) { vm.search(query) }
+    LaunchedEffect(query,options.downloads.offlineOnly) { vm.search(query) }
     menu?.let {SongOptionsSheet(it,navController,context,onDismiss={menu=null})}
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item { StudioHeader(navController,"Follow your curiosity.") }
@@ -48,12 +50,17 @@ fun SearchScreen(navController:NavController) {
             }
         }
         if(query.isBlank()) {
-            item { StudioSection("Find a mood","Choose a direction. See where it takes you.") }
+            item{Column(Modifier.padding(20.dp)){StudioAction("Mixes & rediscovery","Artist mixes, forgotten favorites and offline discoveries",Icons.Default.AutoAwesome){navController.navigate(discoveryRoute())}}}
+            if(options.downloads.offlineOnly){
+                item{Column(Modifier.padding(horizontal=20.dp)){StudioAction("Downloaded music","Your offline shelf",Icons.Default.Download){navController.navigate(Routes.Downloads.route)}}}
+            }else{
+            item { StudioSection("Find a mood") }
             items(listOf("Focus" to "focus","After hours" to "chill","Turn it up" to "workout","New horizons" to "indie","Pop culture" to "pop","Deep cuts" to "jazz")) { (label,key) ->
                 Box(Modifier.padding(horizontal=20.dp,vertical=5.dp)) {StudioAction(label,"Explore playlists",Icons.Default.NorthEast) {navController.navigate(categoryRoute(key,label))}}
             }
+            }
         } else {
-            if(response is Response.Loading) item {LinearProgressIndicator(Modifier.fillMaxWidth().padding(20.dp),color=AppPalette)}
+            if(response is Response.Loading||(tab==4&&result.podcastsLoading)) item {LinearProgressIndicator(Modifier.fillMaxWidth().padding(20.dp),color=AppPalette)}
             if(tab==0||tab==1) {
                 if(result.songs.isNotEmpty()) item {StudioSection("Tracks")}
                 itemsIndexed(result.songs,key={i,s->"song:${s.id}:$i"}) {i,s->StudioTrack(s,i,vm.currentSongId.value==s.id,{

@@ -39,8 +39,11 @@ class CurrentSongState @Inject constructor() {
     fun updateQueue(queue: List<SongsModel>) {
         // Playback finds the current track by id, and the queue screen keys rows by
         // id, so a track listed twice (e.g. in a playlist) is queued once.
-        val songs = queue.distinctBy { it.id }
+        SongPlayer.registerExplicit(queue.map{it.url to it.explicit})
+        val songs = queue.distinctBy { it.id }.filter{!io.github.unidentified24.spock.features.FeatureSettings.value.privacy.explicitFilter||!it.explicit}
         _queue.value = songs
+        io.github.unidentified24.spock.features.library.QueueArchive.offer(songs)
+        io.github.unidentified24.spock.features.downloads.TrackCatalog.offer(io.github.unidentified24.spock.MyApplication.instance,songs)
         // Seed the lossless resolver: map each track's play query → its Spotify id so
         // SongPlayer can resolve a FLAC stream from a play site that only has the query.
         SongPlayer.registerLossless(songs.map { it.url to it.spotifyTrackId })

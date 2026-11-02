@@ -119,9 +119,14 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.filled.*
 import io.github.unidentified24.spock.ui.components.*
 import io.github.unidentified24.spock.ui.theme.*
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(navController:NavController) {
     val vm:PlayerViewModel=hiltViewModel();val context=LocalContext.current
+    val comfort=LocalComfort.current
+    val options by io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState()
+    val appearance=options.player
+    var colors by remember(vm.currentSongCoverUri.value){mutableStateOf(AppPalette to SecondaryPalette)}
     val title=vm.currentSongTitle.value;val artist=vm.currentSongSinger.value;val id=vm.currentSongId.value
     val playing=vm.currentSongPlayingState.value;val songs=vm.queue.value
     var menu by remember {mutableStateOf(false)};var lyrics by remember {mutableStateOf(false)}
@@ -135,34 +140,36 @@ fun PlayerScreen(navController:NavController) {
     val current=songs.firstOrNull {it.id==id}
     val controls: @Composable ColumnScope.() -> Unit = {
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(vm.currentSongAlbum.value.ifBlank{"NOW PLAYING"}.uppercase(),color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text(title.ifBlank{"Nothing playing yet"},color=Color.White,style=MaterialTheme.typography.headlineLarge,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if(!appearance.compact)Text(vm.currentSongAlbum.value.ifBlank{"NOW PLAYING"}.uppercase(),color=AppPalette,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(title.ifBlank{"Nothing playing yet"},color=Color.White,style=if(appearance.compact)MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineLarge,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Text(artist,color=TextMuted,style=MaterialTheme.typography.titleMedium,modifier=Modifier.clickable {
                 vm.goToArtist(current?.spotifyTrackId.orEmpty(),artist){navController.navigate(it)}
             })
         }
         StudioPlayerTimeline(id,playing)
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceEvenly) {
-            StudioIcon(Icons.Default.Shuffle,"Shuffle",selected=vm.shuffleState.value){vm.updateShuffleState(!vm.shuffleState.value)}
-            StudioIcon(Icons.Default.SkipPrevious,"Previous"){vm.playPreviousSong(songs,context)}
-            FilledIconButton(onClick={
+        FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly,verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            if("shuffle" in appearance.controls)StudioIcon(Icons.Default.Shuffle,"Shuffle",selected=vm.shuffleState.value){vm.updateShuffleState(!vm.shuffleState.value)}
+            if("previous" in appearance.controls)StudioIcon(Icons.Default.SkipPrevious,"Previous"){vm.playPreviousSong(songs,context)}
+            FilledIconButton(enabled=current!=null,onClick={
                 if(playing) SongPlayer.pause() else SongPlayer.play()
                 vm.updateSongState(vm.currentSongCoverUri.value,title,artist,!playing,id,vm.currentSongIndex.value,vm.currentSongAlbum.value)
-            },modifier=Modifier.size(76.dp),shape=RoundedCornerShape(24.dp)) {
+            },modifier=Modifier.size(if(appearance.compact)64.dp else 76.dp),shape=RoundedCornerShape(24.dp)) {
                 Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,if(playing)"Pause" else "Play",modifier=Modifier.size(38.dp))
             }
-            StudioIcon(Icons.Default.SkipNext,"Next"){vm.playNextSongs(songs,context)}
-            StudioIcon(Icons.Default.Repeat,"Repeat",selected=vm.repeatState.value){vm.updateRepeatState(!vm.repeatState.value)}
+            if("next" in appearance.controls)StudioIcon(Icons.Default.SkipNext,"Next"){vm.playNextSongs(songs,context)}
+            if("repeat" in appearance.controls)StudioIcon(Icons.Default.Repeat,"Repeat",selected=vm.repeatState.value){vm.updateRepeatState(!vm.repeatState.value)}
         }
         StudioSourceStatus(id,navController,current?.url.orEmpty())
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick={lyrics=true},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.Notes,null);Text(" Lyrics")}
-            OutlinedButton(onClick={navController.navigate(Routes.Queue.route)},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.QueueMusic,null);Text(" Up next")}
+            if("lyrics" in appearance.controls)OutlinedButton(onClick={lyrics=true},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.Notes,null);Text(" Lyrics")}
+            if("queue" in appearance.controls)OutlinedButton(onClick={navController.navigate(Routes.Queue.route)},shape=RoundedCornerShape(14.dp),modifier=Modifier.weight(1f)){Icon(Icons.Default.QueueMusic,null);Text(" Up next")}
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(AppBackground).safeDrawingPadding(),contentAlignment=Alignment.TopCenter) {
-        val wide=maxWidth>=700.dp || (maxWidth>=560.dp && maxHeight<500.dp)
-        val artSize=(maxHeight-(if(wide)220.dp else 440.dp)).coerceIn(96.dp,if(wide)440.dp else 400.dp)
+    val background=if(appearance.backdrop&&!comfort.batterySaver)Brush.radialGradient(listOf(colors.first.copy(alpha=.3f),AppBackground,AppBackground))else Brush.linearGradient(listOf(AppBackground,AppBackground))
+    BoxWithConstraints(Modifier.fillMaxSize().background(background).safeDrawingPadding(),contentAlignment=Alignment.TopCenter) {
+        val availableHeight=maxHeight
+        val wide=(maxWidth>=700.dp&&appearance.layout!="FOCUS") || (maxWidth>=560.dp && (availableHeight<500.dp||appearance.layout=="DESK"))
+        val artSize=((availableHeight-(if(wide)220.dp else if(appearance.compact)370.dp else 440.dp))*appearance.artScale).coerceIn(72.dp,if(wide)520.dp else 500.dp)
         Column(Modifier.widthIn(max=1100.dp).fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
             StudioIcon(Icons.Default.KeyboardArrowDown,"Close player"){navController.navigateUp()}
@@ -171,14 +178,19 @@ fun PlayerScreen(navController:NavController) {
             }
             StudioIcon(Icons.Default.MoreHoriz,"Track options"){menu=true}
         }
-            if(wide) {
+            if(comfort.oneHanded){
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.SpaceBetween){
+                    Box(Modifier.weight(1f).verticalScroll(rememberScrollState()),contentAlignment=Alignment.Center){PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize){a,b->colors=a to b}}
+                    Column(Modifier.fillMaxWidth().heightIn(max=(availableHeight-180.dp).coerceIn(180.dp,420.dp)).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp),content=controls)
+                }
+            }else if(wide) {
                 Row(Modifier.weight(1f),horizontalArrangement=Arrangement.spacedBy(28.dp)) {
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize)}
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize){a,b->colors=a to b}}
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp),content=controls)
                 }
             } else {
                 Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize)
+                    PlayerPresentation(title,vm.currentSongCoverUri.value,playing,artSize){a,b->colors=a to b}
                     controls()
                 }
             }

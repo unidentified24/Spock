@@ -12,7 +12,7 @@ plugins {
 val versions = Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
 android {
     namespace = "io.github.unidentified24.spock"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "io.github.unidentified24.spock"
@@ -136,6 +136,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     //core library desugaring (required by :innertube)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")

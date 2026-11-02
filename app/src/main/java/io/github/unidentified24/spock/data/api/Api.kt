@@ -18,6 +18,9 @@ import io.github.unidentified24.spock.data.entity.HomeSection
 import io.github.unidentified24.spock.data.entity.SearchResults
 import io.github.unidentified24.spock.data.entity.SongsModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
@@ -87,6 +90,8 @@ class Api @Inject constructor(
             spotifyTrackId = id,
             explicit = explicit,
             durationMs = durationMs,
+            albumId=album?.id.orEmpty(),artistIds=artists.mapNotNull{it.id},artistNames=artists.map{it.name},
+            year=album?.releaseDate?.take(4)?.toIntOrNull() ?: 0,trackNumber=trackNumber ?: 0,
         )
     }
 
@@ -250,19 +255,10 @@ class Api @Inject constructor(
         }
         Spotify.search(query, types = listOf("track", "album", "artist"), limit = 20).fold(
             onSuccess = { res ->
-                // Podcasts come from the REST catalog search (best-effort — a failure
-                // there must not blank out the music results).
-                val podcasts = Spotify.searchPodcasts(query, limit = 12)
-                    .onFailure { Log.e("Api", "searchPodcasts FAILED: ${it.message}", it) }
-                    .getOrNull()
-                Log.d("Api", "podcasts: shows=${podcasts?.shows?.items?.size ?: -1} episodes=${podcasts?.episodes?.items?.size ?: -1}")
-                emit(Response.Success(SearchResults(
-                    songs = res.tracks?.items.orEmpty().map { it.toSongModel() },
-                    albums = res.albums?.items.orEmpty().map { it.toAlbumModel() },
-                    artists = res.artists?.items.orEmpty().map { it.toArtistModel() },
-                    shows = podcasts?.shows?.items.orEmpty().map { it.toPodcastModel() },
-                    episodes = podcasts?.episodes?.items.orEmpty().map { it.toEpisodeSongModel(null) },
-                )))
+                val music=SearchResults(songs=res.tracks?.items.orEmpty().map{it.toSongModel()},albums=res.albums?.items.orEmpty().map{it.toAlbumModel()},artists=res.artists?.items.orEmpty().map{it.toArtistModel()})
+                emit(Response.Success(music.copy(podcastsLoading=true)))
+                val podcasts=kotlinx.coroutines.withTimeoutOrNull(4000){Spotify.searchPodcasts(query,limit=12).getOrNull()}
+                emit(Response.Success(music.copy(shows=podcasts?.shows?.items.orEmpty().map{it.toPodcastModel()},episodes=podcasts?.episodes?.items.orEmpty().map{it.toEpisodeSongModel(null)})))
             },
             onFailure = { Log.e("Api", "searchEverything failed", it); emit(Response.Error(it.message ?: "error")) },
         )
@@ -315,7 +311,12 @@ class Api @Inject constructor(
      * a playlist/album ends. Up to 5 seeds are allowed by Spotify; we cap there.
      * Returns an empty list on failure so callers can simply fall back to looping.
      */
-    suspend fun getRecommendations(seedTrackIds: List<String>): List<SongsModel> {
+    suspend fun getRecommendations(seedTrackIds:List<String>):List<SongsModel>{
+        val songs=recommendationsRaw(seedTrackIds)
+        val options=io.github.unidentified24.spock.features.FeatureSettings.value
+        return io.github.unidentified24.spock.features.discovery.DiscoveryPolicy.filter(songs,options.discovery.copy(genre="",decade=0),io.github.unidentified24.spock.data.preferences.ListeningMeter.samples(context),java.time.LocalDate.now(),options.privacy.explicitFilter,applyGenre=false)
+    }
+    private suspend fun recommendationsRaw(seedTrackIds: List<String>): List<SongsModel> {
         val seeds = seedTrackIds.filter { it.isNotBlank() }.distinct()
         if (seeds.isEmpty()) return emptyList()
         if (!SpotifyTokenProvider.ensureToken(context)) return emptyList()
@@ -351,6 +352,37 @@ class Api @Inject constructor(
             .getRecommendations(seedTrack, limit = 25)
             .map { it.toSongModel() }
             .ifEmpty { emptyList<SongsModel>().also { Log.w("Api", "getRecommendations returned no tracks") } }
+    }
+
+    suspend fun searchArtistsForMix(query:String):List<ArtistsModel>{
+        if(query.isBlank()||!SpotifyTokenProvider.ensureToken(context))return emptyList()
+        return Spotify.search(query,types=listOf("artist"),limit=15).getOrNull()?.artists?.items.orEmpty().map{it.toArtistModel()}
+    }
+    suspend fun artistMix(ids:List<String>):List<SongsModel>{
+        if(!SpotifyTokenProvider.ensureToken(context))return emptyList()
+        return kotlinx.coroutines.coroutineScope{
+            val slots=kotlinx.coroutines.sync.Semaphore(2)
+            ids.filter{it.isNotBlank()}.distinct().take(5).map{id->async{slots.withPermit{Spotify.artistTopTracks(id).getOrNull()?.tracks.orEmpty().map{it.toSongModel()}}}}.map{it.await()}.flatten().distinctBy{it.id}.shuffled()
+        }
+    }
+    suspend fun discoveryTracks(genre:String,decade:Int):List<SongsModel>{
+        if(!SpotifyTokenProvider.ensureToken(context))return emptyList()
+        val query=listOf(genre.takeIf{it.isNotBlank()}?.let{"genre:\"${it.replace("\"","")}\""},decade.takeIf{it>0}?.let{"year:$it-${it+9}"}).filterNotNull().joinToString(" ")
+        if(query.isBlank())return emptyList()
+        return Spotify.search(query,types=listOf("track"),limit=50).getOrNull()?.tracks?.items.orEmpty().map{it.toSongModel()}
+    }
+    suspend fun enrichGenres(tracks:List<SongsModel>):List<SongsModel>{
+        if(!SpotifyTokenProvider.ensureToken(context))return tracks
+        val preferences=context.getSharedPreferences("artist_genres",0);val genres=mutableMapOf<String,List<String>>()
+        for(id in tracks.flatMap{it.artistIds}.distinct().take(20)){
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val cached=preferences.getString(id,null)?.let{runCatching{org.json.JSONObject(it)}.getOrNull()}
+            if(cached!=null&&System.currentTimeMillis()-cached.optLong("at")<30L*86400000){val values=cached.optJSONArray("genres");genres[id]=(0 until (values?.length() ?: 0)).map{values!!.getString(it)};continue}
+            val artist=Spotify.artist(id).getOrNull() ?: continue
+            genres[id]=artist.genres
+            preferences.edit().putString(id,org.json.JSONObject().put("at",System.currentTimeMillis()).put("genres",org.json.JSONArray(artist.genres)).toString()).apply()
+        }
+        return tracks.map{song->song.copy(genres=(song.genres+song.artistIds.flatMap{genres[it].orEmpty()}).distinct())}
     }
 
     /**
@@ -522,7 +554,7 @@ class Api @Inject constructor(
             emit(Response.Success(emptyList())); return@flow
         }
         Spotify.album(albumId).fold(
-            onSuccess = { full -> emit(Response.Success(full.tracks?.items.orEmpty().map { it.toSongModel() })) },
+            onSuccess = { full -> emit(Response.Success(full.tracks?.items.orEmpty().map { track->track.toSongModel().copy(album=full.name,albumId=full.id,albumTrackCount=full.totalTracks,genres=full.genres,year=full.releaseDate?.take(4)?.toIntOrNull() ?: 0,coverUri=full.images.firstOrNull()?.url.orEmpty()) })) },
             onFailure = { Log.e("Api", "getAlbumSongs failed", it); emit(Response.Error(it.message ?: "error")) },
         )
     }
@@ -547,7 +579,7 @@ class Api @Inject constructor(
         val all = fetchAllPages(onPage = { items, total ->
             expectedTotal = total
             loaded = true
-            emit(Response.Success(items.mapNotNull { it.track?.toSongModel() }))
+            emit(Response.Success(items.mapNotNull { entry->entry.track?.toSongModel()?.copy(addedAt=runCatching{java.time.Instant.parse(entry.addedAt).toEpochMilli()}.getOrDefault(0)) }))
         }) { offset -> Spotify.playlistTracks(playlistId, limit = 100, offset = offset) }
         if (!loaded) emit(Response.Error("Couldn't load this playlist"))
         else if (all.size < expectedTotal) emit(Response.Error("Couldn't load the complete playlist. Please try again."))
@@ -625,7 +657,7 @@ class Api @Inject constructor(
         var loaded = false
         fetchAllPages(onPage = { items, total ->
             loaded = true
-            val models = items.map { it.track.toSongModel() }
+            val models = items.map { it.track.toSongModel().copy(addedAt=runCatching{java.time.Instant.parse(it.addedAt).toEpochMilli()}.getOrDefault(0)) }
             io.github.unidentified24.spock.data.preferences.syncSpotifyLikedSongIds(
                 context, models.mapTo(HashSet()) { it.id.toString() }, complete = items.size >= total,
             )

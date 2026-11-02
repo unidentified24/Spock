@@ -23,12 +23,19 @@ class NoRippleInteractionSource : MutableInteractionSource by MutableInteraction
 fun MainBottomNavigation(navController:NavHostController,bottomBarState:MutableState<Boolean>,bottomBarPlayerState:MutableState<Boolean>) {
     val current by navController.currentBackStackEntryAsState()
     if(!bottomBarState.value)return
+    if(LocalNavigationRail.current){Column(Modifier.fillMaxWidth().background(AppBackground).navigationBarsPadding()){if(bottomBarPlayerState.value)MiniPlayer(navController)};return}
+    if(currentLayout==SpockLayout.MINIMAL){
+        Column(Modifier.fillMaxWidth().background(AppBackground).navigationBarsPadding()){
+            if(bottomBarPlayerState.value)MiniPlayer(navController)
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly){listOf("home" to "Listen","search" to "Explore","library" to "Collection").forEach{(route,label)->TextButton(onClick={navController.navigate(route){popUpTo(navController.graph.findStartDestination().id);launchSingleTop=true}}){Text(label,color=if(current?.destination?.route==route)AppPalette else TextMuted)}}}
+        };return
+    }
     if(currentLayout==SpockLayout.CLASSIC) {
         Column(Modifier.fillMaxWidth().background(AppBackground).navigationBarsPadding()) {
             if(bottomBarPlayerState.value)MiniPlayer(navController)
             NavigationBar(containerColor=AppBackground,windowInsets=WindowInsets(0,0,0,0)) {
                 listOf(Triple(Routes.Home,"Home",Icons.Default.Home),Triple(Routes.Search,"Search",Icons.Default.Search),Triple(Routes.Library,"Library",Icons.Default.LibraryMusic)).forEach{(route,label,icon)->
-                    NavigationBarItem(selected=current?.destination?.route==route.route,onClick={navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id){saveState=true};launchSingleTop=true;restoreState=true}},
+                    NavigationBarItem(selected=current?.destination?.route==route.route,onClick={navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id);launchSingleTop=true}},
                         icon={Icon(icon,label)},label={Text(label)},colors=NavigationBarItemDefaults.colors(selectedIconColor=AppPalette,indicatorColor=AppBackground))
                 }
             }
@@ -42,7 +49,7 @@ fun MainBottomNavigation(navController:NavHostController,bottomBarState:MutableS
             destinations.forEach { (route,label,icon)->
                 val selected=current?.destination?.route==route.route
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(if(selected) AppPalette.copy(alpha=.13f) else GridBackground)
-                    .clickable{navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id){saveState=true};launchSingleTop=true;restoreState=true}}
+                    .clickable{navController.navigate(route.route){popUpTo(navController.graph.findStartDestination().id);launchSingleTop=true}}
                     .padding(vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Icon(icon,null,tint=if(selected)AppPalette else TextMuted,modifier=Modifier.size(18.dp))
                     Text(label,color=if(selected)Color.White else TextMuted,style=MaterialTheme.typography.labelMedium)

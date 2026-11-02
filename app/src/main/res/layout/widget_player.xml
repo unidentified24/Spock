@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="12dp"
+    android:background="@drawable/widget_player_background">
+
+    <ImageView
+        android:id="@+id/widget_art"
+        android:layout_width="58dp"
+        android:layout_height="58dp"
+        android:padding="8dp"
+        android:scaleType="centerInside"
+        android:src="@mipmap/ic_launcher"
+        android:contentDescription="Open Spock player" />
+
+    <LinearLayout
+        android:id="@+id/widget_track_title_container"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingHorizontal="8dp">
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Your music"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+        <TextView
+            android:id="@+id/widget_artist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Open Spock to start listening"
+            android:textColor="#BFFFFFFF"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/widget_previous"
+        android:layout_width="42dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:src="@android:drawable/ic_media_previous"
+        android:contentDescription="Previous track"
+        android:tint="#FFFFFFFF" />
+    <ImageButton
+        android:id="@+id/widget_play"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:src="@android:drawable/ic_media_play"
+        android:contentDescription="Play or pause"
+        android:tint="#FFFFFFFF" />
+    <ImageButton
+        android:id="@+id/widget_next"
+        android:layout_width="42dp"
+        android:layout_height="48dp"
+        android:background="@android:color/transparent"
+        android:src="@android:drawable/ic_media_next"
+        android:contentDescription="Next track"
+        android:tint="#FFFFFFFF" />
+</LinearLayout>

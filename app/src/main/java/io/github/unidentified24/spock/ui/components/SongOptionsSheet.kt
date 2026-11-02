@@ -96,12 +96,7 @@ fun SongOptionsSheet(
     // Spotify-style "Saved in" sheet (Liked Songs + playlists, add/remove/create).
     var showSavedIn by remember { mutableStateOf(false) }
     if (showSavedIn) {
-        SavedInSheet(
-            song = song,
-            context = context,
-            onDismiss = { showSavedIn = false; onDismiss() },
-            onLikedChanged = { liked = it },
-        )
+        AddTracksDialog(listOf(song)){showSavedIn=false;onDismiss()}
         return
     }
 
@@ -143,7 +138,7 @@ fun SongOptionsSheet(
             }
             SongMenuRow(
                 Icons.Default.Add, "Add to playlist",
-                enabled = song.spotifyTrackId.isNotBlank(), trailingArrow = true,
+                enabled = song.url.isNotBlank(), trailingArrow = true,
             ) {
                 showSavedIn = true
             }
@@ -155,8 +150,14 @@ fun SongOptionsSheet(
                 if (liked) removeLikedSongId(context, song.id.toString())
                 else addLikedSongId(context, song.id.toString())
                 liked = !liked
+                if(liked)io.github.unidentified24.spock.features.downloads.SmartOffline.favoriteAdded(context,song)
                 // Mirror the like to the real Spotify account.
                 io.github.unidentified24.spock.data.api.SpotifySync.setTrackSaved(context, song.spotifyTrackId, liked)
+            }
+            SongMenuRow(Icons.Default.Person,"Recommend less from this artist"){
+                val artist=song.artistNames.firstOrNull() ?: song.singer
+                io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(discovery=it.discovery.copy(excludedArtists=it.discovery.excludedArtists+artist))}
+                android.widget.Toast.makeText(context,"Artist excluded from mixes",android.widget.Toast.LENGTH_SHORT).show();onDismiss()
             }
             SongMenuRow(
                 icon = if (downloaded) Icons.Default.CheckCircle else ImageVector.vectorResource(R.drawable.ic_download),

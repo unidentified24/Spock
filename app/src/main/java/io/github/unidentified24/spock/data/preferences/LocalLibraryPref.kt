@@ -14,7 +14,7 @@ import org.json.JSONObject
 private const val PREF = "LocalLibrary"
 private const val KEY = "tracks"
 
-data class LocalTrack(
+data class LocalTrack @JvmOverloads constructor(
     val id: Int,
     val uri: String,
     val title: String,
@@ -22,6 +22,7 @@ data class LocalTrack(
     val album: String,
     val durationMs: Int,
     val coverUri: String,
+    val addedAt:Long=0,
 )
 
 /** Stable, non-negative id for a local file, matching the app's id convention. */
@@ -38,6 +39,7 @@ private fun LocalTrack.toJson(): JSONObject = JSONObject().apply {
     put("album", album)
     put("durationMs", durationMs)
     put("coverUri", coverUri)
+    put("addedAt",addedAt)
 }
 
 private fun parse(obj: JSONObject): LocalTrack? = runCatching {
@@ -51,6 +53,7 @@ private fun parse(obj: JSONObject): LocalTrack? = runCatching {
         album = obj.optString("album"),
         durationMs = obj.optInt("durationMs"),
         coverUri = obj.optString("coverUri"),
+        addedAt=obj.optLong("addedAt"),
     )
 }.getOrNull()
 
@@ -67,12 +70,21 @@ fun addLocalTracks(context: Context, tracks: List<LocalTrack>) {
     if (tracks.isEmpty()) return
     val existing = getLocalTracks(context)
     val seen = existing.mapTo(HashSet()) { it.uri }
-    val merged = existing + tracks.filter { seen.add(it.uri) }
+    val now=System.currentTimeMillis()
+    val merged = existing + tracks.filter { seen.add(it.uri) }.map{it.copy(addedAt=it.addedAt.takeIf{value->value>0} ?: now)}
     save(context, merged)
 }
 
 fun removeLocalTrack(context: Context, uri: String) {
     save(context, getLocalTracks(context).filterNot { it.uri == uri })
+}
+fun updateLocalTrack(context:Context,originalUri:String,track:LocalTrack){
+    save(context,getLocalTracks(context).map{if(it.uri==originalUri)track.copy(id=it.id,addedAt=it.addedAt)else it})
+}
+fun refreshLocalTracks(context:Context,tracks:List<LocalTrack>){
+    val byUri=tracks.associateBy{it.uri};val existing=getLocalTracks(context)
+    save(context,existing.map{old->byUri[old.uri]?.copy(id=old.id,addedAt=old.addedAt) ?: old})
+    addLocalTracks(context,tracks)
 }
 
 fun clearLocalTracks(context: Context) {
@@ -95,6 +107,7 @@ fun LocalTrack.toSong(): SongsModel = SongsModel(
     spotifyTrackId = "",
     explicit = false,
     durationMs = durationMs,
+    addedAt=addedAt,
 )
 
 fun getLocalSongs(context: Context): List<SongsModel> =

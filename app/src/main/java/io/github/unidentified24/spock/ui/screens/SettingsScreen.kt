@@ -33,31 +33,19 @@ import kotlinx.coroutines.delay
 @Composable
 fun SettingsScreen(navController:NavController,section:String="sound") {
     val context=LocalContext.current
-    var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"about"->4;else->0})}
+    var tab by remember(section){mutableIntStateOf(when(section){"look"->2;"sound"->1;"downloads"->3;"data"->4;"about"->5;else->0})}
     LazyColumn(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding(),contentPadding=PaddingValues(bottom=32.dp)) {
         item {StudioHeader(navController,"Settings",back=true)}
         item {Row(Modifier.padding(horizontal=20.dp).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            listOf("Connections","Sound","Appearance","Data","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
+            listOf("Connections","Sound","Appearance","Downloads","Data","About").forEachIndexed {i,label->StudioChip(label,tab==i){tab=i}}
         }}
         item {Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             when(tab) {
                 0 -> StudioAction("Connected music","Manage Spotify, YouTube, Deezer and FLAC",Icons.Default.GraphicEq){navController.navigate(Routes.Connections.route)}
                 1 -> SoundSettings()
-                2 -> {
-                    Text("Layout",color=TextMuted,style=MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){SpockLayout.entries.forEach {layout->StudioChip(layout.label,currentLayout==layout){currentLayout=layout;context.getSharedPreferences("appearance",0).edit().putString("layout",layout.name).apply()}}}
-                    Text("Choose your atmosphere.",color=Color.White,style=MaterialTheme.typography.headlineSmall)
-                    SpockLook.entries.forEach {look->
-                        Row(Modifier.fillMaxWidth().clip(StudioShape).background(look.surface).border(1.dp,if(currentLook==look)look.accent else Color.Transparent,StudioShape)
-                            .clickable{currentLook=look;if(look==SpockLook.ORIGINAL)currentLayout=SpockLayout.CLASSIC;context.getSharedPreferences("appearance",0).edit().putString("theme",look.name).putString("layout",currentLayout.name).apply()}.padding(18.dp),
-                            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                            Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(look.accent))
-                            Text(look.label,color=Color.White,modifier=Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
-                            if(currentLook==look)Icon(Icons.Default.Check,null,tint=look.accent)
-                        }
-                    }
-                }
-                3 -> BackupSettings()
+                2 -> AppearancePage()
+                3 -> DownloadSettings()
+                4 -> {PrivacySettings();BackupSettings()}
                 else -> {
                     SpockMark(Modifier.size(96.dp))
                     Text("Spock ${io.github.unidentified24.spock.BuildConfig.VERSION_NAME}",color=Color.White,style=MaterialTheme.typography.headlineMedium)
@@ -76,6 +64,20 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
             }
         }}
     }
+}
+
+@Composable private fun PrivacySettings(){
+    val context=LocalContext.current
+    val scope=rememberCoroutineScope()
+    val options=io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState().value.privacy
+    var confirmClear by remember{mutableStateOf(false)}
+    StudioCard(Modifier.fillMaxWidth()){
+        Text("Privacy on this device",color=Color.White,style=MaterialTheme.typography.titleLarge)
+        SourceToggle("Private listening","Don't save listening history, queue snapshots or statistics",options.privateListening){value->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(privacy=it.privacy.copy(privateListening=value))}}
+        SourceToggle("Filter explicit tracks","Hide tracks marked explicit from supported mixes and playback",options.explicitFilter){value->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(privacy=it.privacy.copy(explicitFilter=value))}}
+        TextButton(onClick={confirmClear=true}){Text("Clear all listening history",color=Color.White)}
+    }
+    if(confirmClear)AlertDialog(onDismissRequest={confirmClear=false},title={Text("Clear listening history?")},text={Text("This removes saved listening time, play counts and recap data from this profile. It cannot be undone.")},confirmButton={TextButton(onClick={confirmClear=false;scope.launch{runCatching{withContext(Dispatchers.IO){io.github.unidentified24.spock.data.preferences.ListeningMeter.delete(context)}}.onSuccess{android.widget.Toast.makeText(context,"Listening history cleared",android.widget.Toast.LENGTH_SHORT).show()}.onFailure{android.widget.Toast.makeText(context,"History couldn't be cleared",android.widget.Toast.LENGTH_SHORT).show()}}}){Text("Clear history")}},dismissButton={TextButton(onClick={confirmClear=false}){Text("Cancel")}})
 }
 
 @Composable fun SourceSettings(nav:NavController) {
@@ -136,6 +138,35 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
         SourceToggle("Prepare next track","Cache the next YouTube match while music plays",preload){preload=it;setPreloadEnabled(context,it)}
         SourceToggle("Video fallback","Try regular videos if Music has no playable match",videos){videos=it;setVideoFallbackEnabled(context,it)}
     }
+    val sound=io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState().value.sound
+    fun saveSound(value:io.github.unidentified24.spock.features.SoundOptions){io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(sound=value)};SongPlayer.applySoundOptions()}
+    var speed by remember{mutableFloatStateOf(sound.speed)};var bands by remember{mutableStateOf(sound.equalizer)}
+    LaunchedEffect(sound.speed){speed=sound.speed};LaunchedEffect(sound.equalizer){bands=sound.equalizer}
+    StudioCard(Modifier.fillMaxWidth()){
+        Text("Sound shaping",color=Color.White,style=MaterialTheme.typography.titleLarge)
+        SourceToggle("Native-stream equalizer","Five-band EQ for Spock's native audio engine",sound.enabled){saveSound(sound.copy(enabled=it))}
+        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+            listOf("Flat","Bass","Vocal","Treble").forEach{preset->FilterChip(selected=sound.preset==preset,onClick={
+                val values=when(preset){"Bass"->listOf(600,300,0,-100,100);"Vocal"->listOf(-200,100,400,300,-100);"Treble"->listOf(-100,0,100,300,600);else->listOf(0,0,0,0,0)}
+                bands=values;saveSound(sound.copy(preset=preset,equalizer=values,enabled=preset!="Flat"))
+            },label={Text(preset)})}
+        }
+        bands.take(5).forEachIndexed{index,level->Column{
+            Text(listOf("Low","Low-mid","Mid","High-mid","High").getOrElse(index){"Band ${index+1}"}+" · ${level/100f} dB",color=TextMuted,style=MaterialTheme.typography.bodySmall)
+            Slider(level/100f,{value->bands=bands.toMutableList().also{it[index]=(value*100).toInt()}},valueRange=-12f..12f,onValueChangeFinished={saveSound(sound.copy(equalizer=bands,preset="Custom",enabled=true))})
+        }}
+        Text("Native playback speed · ${"%.2f".format(speed)}×",color=Color.White)
+        Slider(speed,{speed=it},valueRange=.5f..2f,onValueChangeFinished={saveSound(sound.copy(speed=speed))})
+        SourceToggle("Keep pitch while changing speed","Avoids raising or lowering the song's pitch",sound.preservePitch){saveSound(sound.copy(preservePitch=it))}
+    }
+    val lyricOptions=io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState().value.lyrics
+    StudioCard(Modifier.fillMaxWidth()) {
+        SourceToggle("Save lyrics offline","Keep lyrics you open on this device",lyricOptions.cache){value->io.github.unidentified24.spock.data.api.LyricsApi.setPersistentCache(context,value)}
+        SourceToggle("Side-by-side translation","Show original and translated lines in two columns",lyricOptions.bilingual){value->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(lyrics=it.lyrics.copy(bilingual=value))}}
+        PreferenceChoice("Lyrics layout",lyricOptions.layout,listOf("CENTER" to "Centered","COMPACT" to "Compact","LEFT" to "Left aligned")){value->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(lyrics=it.lyrics.copy(layout=value))}}
+        Text("Lyrics text size · ${"%.0f".format(lyricOptions.textScale*100)}%",color=Color.White)
+        Slider(lyricOptions.textScale,{value->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(lyrics=it.lyrics.copy(textScale=value))}},valueRange=.8f..1.6f)
+    }
     OutlinedTextField(language,{language=it.trim().take(12);setLyricTranslateLang(context,language)},label={Text("Lyrics language code")},supportingText={Text("For example en, fr, ja. Empty follows your phone.")},shape=StudioShape,modifier=Modifier.fillMaxWidth())
 }
 @Composable private fun QualityControl(title:String,value:StreamQuality,select:(StreamQuality)->Unit) {
@@ -151,9 +182,17 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
 }
 @Composable private fun UpdateSettings() {
     val context=LocalContext.current;val scope=rememberCoroutineScope()
+    val updateOptions=io.github.unidentified24.spock.features.FeatureSettings.state.collectAsState().value.updates
     var message by remember{mutableStateOf("Check for a signed update")}
     var busy by remember{mutableStateOf(false)}
+    var showHistory by remember{mutableStateOf(false)}
+    var history by remember{mutableStateOf(emptyList<io.github.unidentified24.spock.data.update.UpdateChecker.UpdateInfo>())}
     var available by remember{mutableStateOf<io.github.unidentified24.spock.data.update.UpdateChecker.UpdateInfo?>(null)}
+    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        listOf("STABLE" to "Stable","BETA" to "Beta").forEach{(id,label)->FilterChip(selected=updateOptions.channel==id,onClick={io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(updates=it.updates.copy(channel=id))};available=null},label={Text(label)})}
+    }
+    SourceToggle("Check for updates automatically","Check the chosen channel when the update prompt opens",updateOptions.automaticChecks){enabled->io.github.unidentified24.spock.features.FeatureSettings.update{it.copy(updates=it.updates.copy(automaticChecks=enabled))}}
+    TextButton(onClick={busy=true;scope.launch{history=withContext(Dispatchers.IO){io.github.unidentified24.spock.data.update.UpdateChecker.fetchHistory(updateOptions.channel)};showHistory=true;busy=false}}){Text("Release history")}
     Button(onClick={busy=true;scope.launch {
         available=io.github.unidentified24.spock.data.update.UpdateChecker.check(context,manual=true)
         message=io.github.unidentified24.spock.data.update.UpdateChecker.lastMessage
@@ -169,4 +208,12 @@ fun SettingsScreen(navController:NavController,section:String="sound") {
         }},enabled=!busy){Text("Download and install ${info.version}")}
     }
     Text(message,color=TextMuted,style=MaterialTheme.typography.bodySmall)
+    if(showHistory)AlertDialog(onDismissRequest={showHistory=false},title={Text("${if(updateOptions.channel=="BETA")"Beta and stable" else "Stable"} releases")},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState())){
+        if(history.isEmpty())Text(io.github.unidentified24.spock.data.update.UpdateChecker.lastMessage,color=TextMuted)
+        history.forEach{release->Column(Modifier.fillMaxWidth().clickable{android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(release.pageUrl)).also{context.startActivity(it)}}.padding(vertical=10.dp)){
+            Text("Spock ${release.version}${if(release.prerelease)" · beta" else ""}",color=Color.White,style=MaterialTheme.typography.titleMedium)
+            Text(release.publishedAt.take(10),color=TextMuted,style=MaterialTheme.typography.labelSmall)
+            Text(release.notes.ifBlank{"Release notes"},color=TextMuted,maxLines=4,overflow=TextOverflow.Ellipsis)
+        }}
+    }},confirmButton={TextButton(onClick={showHistory=false}){Text("Done")}})
 }

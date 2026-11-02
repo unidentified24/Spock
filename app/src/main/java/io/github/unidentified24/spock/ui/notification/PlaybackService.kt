@@ -60,6 +60,8 @@ class PlaybackService : MediaLibraryService() {
     private val queueByTrackId = java.util.concurrent.ConcurrentHashMap<String, List<SongsModel>>()
     private var webPlayer: WebMediaPlayer? = null
     private var showingWeb = false
+    @Volatile private var radioPrefetchedFor:String?=null
+    private var radioPrefetchJob:kotlinx.coroutines.Job?=null
 
     override fun onCreate() {
         super.onCreate()
@@ -85,8 +87,10 @@ class PlaybackService : MediaLibraryService() {
 
         // When a crossfade promotes a new ExoPlayer instance, re-bind the session to it
         // (runs on the main thread; setPlayer is the supported way to swap a session's player).
+        SongPlayer.onPlaybackIntentChanged = { PlayerWidgetProvider.refresh(this) }
         SongPlayer.onPlayerSwapped = { newPlayer ->
             if (!showingWeb) mediaSession?.player = wrap(newPlayer)
+            PlayerWidgetProvider.refresh(this)
         }
 
         // When stream resolution fails for a track, skip it automatically so the
@@ -95,12 +99,18 @@ class PlaybackService : MediaLibraryService() {
             SongPlayer.pause()
             currentSongState.updatePlayingState(false)
         }
-        SongPlayer.onTrackEnded = { onTrackEnded() }
-        SongPlayer.onPreloadedTrackStarted = { query -> onPreloadedTrackStarted(query) }
+        SongPlayer.onTrackEnded = { onTrackEnded();PlayerWidgetProvider.refresh(this) }
+        SongPlayer.onPreloadedTrackStarted = { query -> onPreloadedTrackStarted(query);PlayerWidgetProvider.refresh(this) }
 
         // As the hidden web player streams, keep the notification in sync and swap
         // the session between the web player (during web playback) and the ExoPlayer.
-        SongPlayer.onEngineChanged = { syncSessionPlayer() }
+        SongPlayer.onEngineChanged = { syncSessionPlayer();PlayerWidgetProvider.refresh(this) }
+        serviceScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5_000)
+                maybePrefetchRadio()
+            }
+        }
         SpotifyWebPlayer.onStateChanged = {
             SongPlayer.onWebStateChanged()
             syncSessionPlayer()
@@ -109,6 +119,38 @@ class PlaybackService : MediaLibraryService() {
                 // Reflect the web player's real play/pause state into the in-app UI
                 // so the on-screen icon matches after the notification's pause.
                 currentSongState.updatePlayingState(SpotifyWebPlayer.isPlaying)
+            }
+        }
+    }
+
+    /** Ask for radio tracks before the final queued song ends so the player can prepare one. */
+    private fun maybePrefetchRadio() {
+        val queue=currentSongState.queue.value
+        val songId=currentSongState.songId.value
+        val queueIndex=currentSongState.songIndex.value
+        if(queue.isEmpty() || currentSongState.repeat.value || queueIndex !in queue.indices || queueIndex!=queue.lastIndex || queue[queueIndex].id!=songId) return
+        val duration=SongPlayer.getDuration()
+        val remaining=duration-SongPlayer.getCurrentPosition()
+        if(duration<=0 || !io.github.unidentified24.spock.playback.ContinuousPlaybackPolicy.shouldPrefetchRadio(
+                playbackWanted=SongPlayer.isPlaybackWanted(),failed=SongPlayer.playbackFailed,
+                offlineOnly=io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly,
+                hasNext=false,remainingMs=remaining,
+            ) || radioPrefetchedFor==songId.toString())return
+        if(radioPrefetchJob?.isActive==true)return
+        radioPrefetchedFor=songId.toString()
+        io.github.unidentified24.spock.playback.PlaybackDiagnostics.event("Preparing radio continuation before the queue ends")
+        val currentSong=songId
+        radioPrefetchJob=serviceScope.launch {
+            val seeds=queue.takeLast(5).mapNotNull{it.spotifyTrackId.ifBlank{null}}.distinct()
+            if(seeds.isEmpty())return@launch
+            val known=queue.mapTo(HashSet()){it.id}
+            val fresh=withContext(Dispatchers.IO){runCatching{repository.provideRecommendations(seeds)}.getOrDefault(emptyList())}
+                .filter{it.id !in known}
+            if(fresh.isNotEmpty() && currentSongState.songId.value==currentSong && currentSongState.queue.value.lastOrNull()?.id==currentSong){
+                currentSongState.updateQueue(currentSongState.queue.value+fresh)
+                io.github.unidentified24.spock.playback.PlaybackDiagnostics.event("Radio continuation ready before the current track ended")
+            }else if(currentSongState.songId.value==currentSong){
+                io.github.unidentified24.spock.playback.PlaybackDiagnostics.event("Radio continuation was not ready; using end-of-queue fallback")
             }
         }
     }
@@ -211,6 +253,7 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun onTrackEnded() {
         if(SongPlayer.playbackFailed)return
+        val endedSongId=currentSongState.songId.value
         if (currentSongState.repeat.value) {
             SongPlayer.seekTo(0)
             SongPlayer.play()
@@ -222,13 +265,32 @@ class PlaybackService : MediaLibraryService() {
             advance(forward = true,automatic=true)
             return
         }
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly){
+            serviceScope.launch{
+                val known=queue.mapTo(HashSet()){it.id}
+                val local=withContext(Dispatchers.IO){(io.github.unidentified24.spock.data.preferences.getDownloadedSongs(applicationContext)+io.github.unidentified24.spock.data.preferences.getLocalSongs(applicationContext)).distinctBy{it.id}.filter{it.id !in known}.shuffled().take(12)}
+                if(currentSongState.songId.value!=endedSongId)return@launch
+                if(local.isEmpty()){SongPlayer.pause();currentSongState.updatePlayingState(false);return@launch}
+                currentSongState.updateQueue(currentSongState.queue.value+local)
+                advance(forward=true,automatic=true)
+            }
+            return
+        }
         serviceScope.launch {
-            val seeds = queue.takeLast(5).mapNotNull { it.spotifyTrackId.ifBlank { null } }.distinct()
-            val known = queue.mapTo(HashSet()) { it.id }
+            radioPrefetchJob?.let{pending->kotlinx.coroutines.withTimeoutOrNull(2_000){pending.join()}}
+            if(currentSongState.songId.value!=endedSongId)return@launch
+            if(radioPrefetchJob?.isActive==true)radioPrefetchJob?.cancel()
+            val latest=currentSongState.queue.value
+            val latestIndex=latest.indexOfFirst{it.id==currentSongState.songId.value}
+            if(latestIndex>=0&&latestIndex<latest.lastIndex){advance(forward=true,automatic=true);return@launch}
+            val seeds = latest.takeLast(5).mapNotNull { it.spotifyTrackId.ifBlank { null } }.distinct()
+            val known = latest.mapTo(HashSet()) { it.id }
             val fresh = withContext(Dispatchers.IO) {
                 runCatching { repository.provideRecommendations(seeds) }.getOrDefault(emptyList())
-            }.filter { it.id !in known }
+            }.filter { it.id !in known }.distinctBy{it.id}
+            if(currentSongState.songId.value!=endedSongId)return@launch
             if (fresh.isEmpty()) {
+                SongPlayer.pause()
                 currentSongState.updatePlayingState(false)
                 return@launch
             }
@@ -419,7 +481,9 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // The foreground session survives dismissal of the activity.
-        if (!SongPlayer.isPlaying() && mediaSession?.player?.playWhenReady != true) stopSelf()
+        // A short buffer, source handoff, or the web engine's loading state must
+        // not look like a user pause; otherwise swiping away the app kills audio.
+        if (!SongPlayer.isPlaybackWanted()) stopSelf()
     }
 
     override fun onDestroy() {
@@ -430,6 +494,7 @@ class PlaybackService : MediaLibraryService() {
         SongPlayer.onPreloadedTrackStarted = null
         SpotifyWebPlayer.onStateChanged = null
         SongPlayer.onEngineChanged=null
+        SongPlayer.onPlaybackIntentChanged=null
         SongPlayer.release()
         webPlayer?.release()
         webPlayer = null

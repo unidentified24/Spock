@@ -51,6 +51,7 @@ private fun save(context: Context, entries: List<HistoryEntry>) {
 }
 
 fun addListeningHistory(context: Context, entry: HistoryEntry) {
+    if(io.github.unidentified24.spock.features.FeatureSettings.value.privacy.privateListening)return
     if (entry.title.isBlank()) return
     val existing = getListeningHistory(context)
     // Don't log the same track twice in a row (pause/resume, seek restarts).

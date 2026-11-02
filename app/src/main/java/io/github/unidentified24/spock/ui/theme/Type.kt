@@ -18,3 +18,9 @@ val Typography=Typography(
     titleSmall=body.copy(fontSize=14.sp,lineHeight=20.sp,fontWeight=FontWeight.SemiBold),bodyLarge=body.copy(fontSize=16.sp,lineHeight=25.sp),bodyMedium=body.copy(fontSize=14.sp,lineHeight=22.sp),
     bodySmall=body.copy(fontSize=12.sp,lineHeight=18.sp),labelLarge=body.copy(fontSize=14.sp,fontWeight=FontWeight.SemiBold),labelMedium=body.copy(fontSize=11.sp,lineHeight=16.sp,fontWeight=FontWeight.SemiBold),
     labelSmall=body.copy(fontSize=10.sp,lineHeight=16.sp,letterSpacing=1.5.sp,fontWeight=FontWeight.SemiBold))
+
+fun appearanceTypography(style:String):Typography {
+    if(style=="MODERN")return Typography
+    val family=when(style){"SERIF"->FontFamily.Serif;"MONO"->FontFamily.Monospace;else->FontFamily.SansSerif}
+    return Typography.copy(displayLarge=Typography.displayLarge.copy(fontFamily=family),displayMedium=Typography.displayMedium.copy(fontFamily=family),displaySmall=Typography.displaySmall.copy(fontFamily=family),headlineLarge=Typography.headlineLarge.copy(fontFamily=family),headlineMedium=Typography.headlineMedium.copy(fontFamily=family),headlineSmall=Typography.headlineSmall.copy(fontFamily=family),titleLarge=Typography.titleLarge.copy(fontFamily=family),titleMedium=Typography.titleMedium.copy(fontFamily=family),titleSmall=Typography.titleSmall.copy(fontFamily=family),bodyLarge=Typography.bodyLarge.copy(fontFamily=family),bodyMedium=Typography.bodyMedium.copy(fontFamily=family),bodySmall=Typography.bodySmall.copy(fontFamily=family),labelLarge=Typography.labelLarge.copy(fontFamily=family),labelMedium=Typography.labelMedium.copy(fontFamily=family),labelSmall=Typography.labelSmall.copy(fontFamily=family))
+}

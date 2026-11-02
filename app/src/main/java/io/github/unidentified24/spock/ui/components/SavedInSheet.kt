@@ -194,6 +194,7 @@ fun SavedInSheet(
                 liked = !liked
                 if (liked) addLikedSongId(context, song.id.toString())
                 else removeLikedSongId(context, song.id.toString())
+                if(liked)io.github.unidentified24.spock.features.downloads.SmartOffline.favoriteAdded(context,song)
                 SpotifySync.setTrackSaved(context, song.spotifyTrackId, liked)
                 onLikedChanged(liked)
             }

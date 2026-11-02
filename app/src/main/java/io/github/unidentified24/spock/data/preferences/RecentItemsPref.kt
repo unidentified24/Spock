@@ -59,6 +59,7 @@ private fun save(context: Context, items: List<RecentItem>) {
 }
 
 fun addRecentItem(context: Context, item: RecentItem) {
+    if(io.github.unidentified24.spock.features.FeatureSettings.value.privacy.privateListening)return
     if (item.name.isBlank()) return
     val rest = getRecentItems(context).filterNot { it.type == item.type && it.key == item.key }
     save(context, (listOf(item) + rest).take(MAX_ITEMS))

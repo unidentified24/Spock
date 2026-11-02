@@ -56,6 +56,11 @@ class LyricsViewModel @Inject constructor() : ViewModel() {
         }
     }
 
+    fun loadSaved(key:String,lyrics:Lyrics){
+        loadedKey="saved:$key"
+        _state.value=State.Loaded(lyrics=lyrics,sourceLanguage=lyrics.language,translationChecked=lyrics.language!=null)
+    }
+
     fun toggleTranslation(targetLang: String) {
         val cur = _state.value as? State.Loaded ?: return
         if (cur.showTranslation) {

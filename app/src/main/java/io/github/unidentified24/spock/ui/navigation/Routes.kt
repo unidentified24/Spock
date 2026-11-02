@@ -21,6 +21,9 @@ sealed class Routes(
     object Liked : Routes(0, "Liked", "liked")
     object Downloads : Routes(0, "Downloads", "downloads")
     object OfflinePlaylist : Routes(0, "Offline playlist", "offline-playlist")
+    object ManagedPlaylist : Routes(0,"Spock playlist","spock-playlist")
+    object Discovery : Routes(0,"Mixes","mixes")
+    object DiscoveryMix : Routes(0,"Discovery mix","discovery-mix")
     object Category : Routes(0, "Category", "category")
     object Login : Routes(0, "Login", "login")
     object Settings : Routes(0, "Settings", "settings")
@@ -37,6 +40,9 @@ sealed class Routes(
 }
 
 fun offlinePlaylistRoute(id:String)="${Routes.OfflinePlaylist.route}/${android.net.Uri.encode(id)}"
+fun managedPlaylistRoute(id:String)="${Routes.ManagedPlaylist.route}/${android.net.Uri.encode(id)}"
+fun discoveryMixRoute(id:String)="${Routes.DiscoveryMix.route}/${android.net.Uri.encode(id)}"
+fun discoveryRoute(kind:String="forgotten")="${Routes.Discovery.route}?kind=${android.net.Uri.encode(kind)}"
 
 /** Builds a Browse-category route carrying the search genre and a display title. */
 fun categoryRoute(genre: String, title: String): String =

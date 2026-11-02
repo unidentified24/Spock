@@ -74,22 +74,26 @@ fun MyNavHost(
     LaunchedEffect(Unit) {
         if (playerViewModel.currentSongTitle.value.isBlank()) {
             io.github.unidentified24.spock.data.preferences.loadLastPlayback(context)?.let { (song, positionMs) ->
-                playerViewModel.updateQueue(listOf(song))
+                val saved=io.github.unidentified24.spock.features.library.QueueArchive.state.value.current
+                val restored=saved.takeIf{rows->rows.any{it.id==song.id}} ?: listOf(song)
+                playerViewModel.updateQueue(restored)
                 playerViewModel.updateSongState(
-                    song.coverUri, song.title, song.singer, false, song.id, 0, song.album)
+                    song.coverUri, song.title, song.singer, false, song.id, restored.indexOfFirst{it.id==song.id}.coerceAtLeast(0), song.album)
                 io.github.unidentified24.spock.di.SongPlayer.setRestorePoint(song.url, positionMs)
             }
         }
     }
 
+    val comfort=io.github.unidentified24.spock.ui.theme.LocalComfort.current
+    val transitionMs=if(comfort.reduceMotion||comfort.batterySaver)0 else 150
     NavHost(
         navController = navHostController,
         startDestination = startDestination,
         // Quick fade between screens instead of the default slide/scale animations.
-        enterTransition = { fadeIn(animationSpec = tween(150)) },
-        exitTransition = { fadeOut(animationSpec = tween(150)) },
-        popEnterTransition = { fadeIn(animationSpec = tween(150)) },
-        popExitTransition = { fadeOut(animationSpec = tween(150)) },
+        enterTransition = { fadeIn(animationSpec = tween(transitionMs)) },
+        exitTransition = { fadeOut(animationSpec = tween(transitionMs)) },
+        popEnterTransition = { fadeIn(animationSpec = tween(transitionMs)) },
+        popExitTransition = { fadeOut(animationSpec = tween(transitionMs)) },
     ){
         composable(Routes.Login.route){
             LaunchedEffect(Unit) {
@@ -151,6 +155,18 @@ fun MyNavHost(
             DownloadsScreen(navHostController)
         }
 
+        composable("${Routes.Discovery.route}?kind={kind}",arguments=listOf(navArgument("kind"){defaultValue="forgotten"})){entry->
+            LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
+            io.github.unidentified24.spock.ui.screens.DiscoveryScreen(navHostController,entry.arguments?.getString("kind") ?: "forgotten")
+        }
+        composable("${Routes.DiscoveryMix.route}/{id}",arguments=listOf(navArgument("id"){type=NavType.StringType})){entry->
+            LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
+            io.github.unidentified24.spock.ui.screens.DiscoveryMixScreen(navHostController,entry.arguments?.getString("id").orEmpty())
+        }
+        composable("${Routes.ManagedPlaylist.route}/{id}",arguments=listOf(navArgument("id"){type=NavType.StringType})){entry->
+            LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
+            io.github.unidentified24.spock.ui.screens.ManagedPlaylistScreen(navHostController,entry.arguments?.getString("id").orEmpty())
+        }
         composable("${Routes.OfflinePlaylist.route}/{id}",arguments=listOf(navArgument("id"){type=NavType.StringType})){entry->
             LaunchedEffect(playerState){bottomBarState.value=true;bottomBarPlayerState.value=playerState!=""}
             io.github.unidentified24.spock.ui.screens.OfflinePlaylistScreen(navHostController,entry.arguments?.getString("id").orEmpty())

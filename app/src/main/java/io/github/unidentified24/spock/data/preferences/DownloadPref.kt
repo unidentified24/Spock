@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import io.github.unidentified24.spock.data.entity.SongsModel
 import org.json.JSONObject
+import kotlinx.serialization.encodeToString
 import io.github.unidentified24.spock.playback.OfflineFiles
 import java.io.File
 
@@ -18,32 +19,11 @@ import java.io.File
  */
 private const val PREF = "Downloads"
 
-private fun SongsModel.toJson(filePath: String): String = JSONObject().apply {
-    put("id", id)
-    put("title", title)
-    put("album", album)
-    put("singer", singer)
-    put("coverUri", coverUri)
-    put("url", url)
-    put("spotifyTrackId", spotifyTrackId)
-    put("explicit", explicit)
-    put("durationMs", durationMs)
-    put("filePath", filePath)
-}.toString()
-
-private fun parse(json: String): Pair<SongsModel, String>? = runCatching {
-    val o = JSONObject(json)
-    SongsModel(
-        id = o.getInt("id"),
-        title = o.getString("title"),
-        album = o.optString("album"),
-        singer = o.getString("singer"),
-        coverUri = o.optString("coverUri"),
-        url = o.getString("url"),
-        spotifyTrackId = o.optString("spotifyTrackId"),
-        explicit = o.optBoolean("explicit", false),
-        durationMs = o.optInt("durationMs", 0),
-    ) to o.optString("filePath")
+private val downloadJson=kotlinx.serialization.json.Json{ignoreUnknownKeys=true;encodeDefaults=true}
+private fun SongsModel.toJson(filePath:String):String=JSONObject(downloadJson.encodeToString(this)).put("filePath",filePath).toString()
+private fun parse(json:String):Pair<SongsModel,String>?=runCatching{
+    val o=JSONObject(json)
+    downloadJson.decodeFromString<SongsModel>(json) to o.optString("filePath")
 }.getOrNull()
 
 // query → file path, rebuilt after any change: downloadedPathForQuery runs on every play.

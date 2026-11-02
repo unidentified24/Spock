@@ -33,21 +33,26 @@ object LocalImport {
             extract(context, uri, displayName = fileNameFor(context, uri))
         }
 
+    /** Import a replacement URI while preserving this library entry's stable identity and first-added date. */
+    fun relinkFile(context:Context, original:LocalTrack, replacement:Uri):LocalTrack? =
+        importFiles(context,listOf(replacement)).firstOrNull()?.copy(id=original.id,addedAt=original.addedAt)
+
     /** Import every supported audio file under a picked folder (recursively). */
-    fun importFolder(context: Context, treeUri: Uri): List<LocalTrack> {
+    fun importFolder(context: Context, treeUri: Uri, excluded:Set<String> = emptySet()): List<LocalTrack> {
         takePersistable(context, treeUri)
         val root = DocumentFile.fromTreeUri(context, treeUri) ?: return emptyList()
         val files = ArrayList<DocumentFile>()
-        walk(root, files)
+        walk(root, files,excluded)
         return files.mapNotNull { doc ->
             extract(context, doc.uri, displayName = doc.name ?: "")
         }
     }
 
-    private fun walk(dir: DocumentFile, out: MutableList<DocumentFile>) {
+    private fun walk(dir: DocumentFile, out: MutableList<DocumentFile>,excluded:Set<String>) {
         for (f in dir.listFiles()) {
+            if(f.uri.toString() in excluded || f.name.orEmpty() in excluded)continue
             if (f.isDirectory) {
-                walk(f, out)
+                walk(f, out,excluded)
             } else {
                 val name = f.name ?: continue
                 if (name.substringAfterLast('.', "").lowercase() in AUDIO_EXTS) out.add(f)

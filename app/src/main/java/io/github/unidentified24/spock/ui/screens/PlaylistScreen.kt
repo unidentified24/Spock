@@ -42,10 +42,15 @@ fun PlaylistScreen(navController:NavController,playlistId:String,playlistName:St
     val name=model?.name?.takeIf{it.isNotBlank()} ?: playlistName.ifBlank{cached?.name ?: "Playlist"}
     val cover=model?.coverUri?.takeIf{it.isNotBlank()} ?: cached?.coverUri ?: songs.firstOrNull()?.coverUri.orEmpty()
     val source=online ?: cached?.songs.orEmpty()
+    val shelf by io.github.unidentified24.spock.features.library.LibraryStore.state.collectAsState()
+    val appearance=shelf.playlists.firstOrNull{it.id==playlistId}
+    LaunchedEffect(playlistId,online,allLoaded,name){if(allLoaded&&online!=null)withContext(Dispatchers.IO){io.github.unidentified24.spock.features.library.LibraryStore.rememberSource(playlistId,name,cover,online)}}
     StudioCollection(navController,name,
-        model?.artists?.ifBlank {"Playlist"} ?: "Playlist",cover,songs,response is Response.Loading&&cached==null,
+        model?.artists?.ifBlank {"Playlist"} ?: "Playlist",appearance?.cover?.takeIf{it.isNotBlank()} ?: cover,songs,response is Response.Loading&&cached==null,
         extra={
+            appearance?.let{CollectionAppearance(it)}
             PlaylistDownloads(OfflinePlaylist(playlistId,name,cover,source),navController,loading=!allLoaded&&(online!=null||cached==null))
             if(response is Response.Error)TextButton(onClick={vm.loadPlaylist(playlistId,force=true)}){Text("Refresh playlist")}
-        })
+        },onBulkRemove=if(allLoaded){{selected->val result=io.github.unidentified24.spock.data.api.SpotifySync.removeMany(context,playlistId,selected.mapNotNull{it.spotifyTrackId.takeIf{it.isNotBlank()}}.toSet());vm.loadPlaylist(playlistId,force=true);result.complete}}else null,
+        onDeduplicate=if(allLoaded){{val result=io.github.unidentified24.spock.data.api.SpotifySync.removeMany(context,playlistId,emptySet(),duplicatesOnly=true);vm.loadPlaylist(playlistId,force=true);result.complete}}else null)
 }

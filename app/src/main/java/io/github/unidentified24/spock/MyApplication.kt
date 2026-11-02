@@ -28,6 +28,20 @@ class MyApplication : Application(){
     override fun onCreate() {
         super.onCreate()
         instance = this
+        io.github.unidentified24.spock.data.api.LyricsApi.initialize(this)
+        io.github.unidentified24.spock.features.FeatureSettings.initialize(this)
+        io.github.unidentified24.spock.features.SessionIdentity.initialize(this)
+        io.github.unidentified24.spock.features.library.LibraryStore.initialize(this)
+        io.github.unidentified24.spock.features.library.QueueArchive.initialize(this)
+        io.github.unidentified24.spock.features.discovery.DiscoveryHistory.initialize(this)
+        io.github.unidentified24.spock.features.downloads.DownloadLedger.initialize(this)
+        io.github.unidentified24.spock.features.LocalFolderScan.schedule(this)
+        io.github.unidentified24.spock.data.backup.AutomaticBackup.schedule(this)
+        io.github.unidentified24.spock.features.LauncherShortcuts.publish(this)
+        appScope.launch {
+            io.github.unidentified24.spock.features.downloads.DownloadScheduler.kick(this@MyApplication)
+            io.github.unidentified24.spock.features.downloads.SmartOffline.schedule(this@MyApplication)
+        }
         val previousCrashHandler=Thread.getDefaultUncaughtExceptionHandler()
         if(previousCrashHandler!=null)Thread.setDefaultUncaughtExceptionHandler{thread,error->
             runCatching {
@@ -79,13 +93,13 @@ class MyApplication : Application(){
         // Meld searches/browses with the same signed-in account used by /player.
         // Leaving this false makes search anonymous and can return the clean edit.
         YouTube.useLoginForBrowse = hasValidSavedLogin
-        if (YouTube.visitorData.isNullOrBlank()) {
+        if (YouTube.visitorData.isNullOrBlank()&&!io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly) {
             appScope.launch {
                 YouTube.visitorData = YouTube.visitorData().getOrNull() ?: YouTube.visitorData
             }
         }
 
-        if(io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(this))appScope.launch {
+        if(io.github.unidentified24.spock.data.preferences.isYouTubeSourceEnabled(this)&&!io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly&&!io.github.unidentified24.spock.features.FeatureSettings.value.comfort.batterySaver)appScope.launch {
             kotlinx.coroutines.delay(750)
             runCatching{com.metrolist.music.utils.YTPlayerUtils.prewarm()}
         }

@@ -2,6 +2,8 @@ package io.github.unidentified24.spock.di
 
 import android.content.Context
 import android.util.Log
+import io.github.unidentified24.spock.features.*
+import io.github.unidentified24.spock.features.downloads.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,25 +33,43 @@ object Downloads {
     private val downloadingSongs =
         java.util.concurrent.ConcurrentHashMap<String, io.github.unidentified24.spock.data.entity.SongsModel>()
 
-    fun isDownloading(query: String): Boolean = downloading.contains(query)
+    fun isDownloading(query: String): Boolean = downloading.contains(query)||DownloadLedger.snapshot().any{it.song.url==query&&it.pending}
 
     /** Current download progress (0..100) for a query, or -1 if unknown/not downloading. */
-    fun downloadProgress(query: String): Int = downloadProgress[query] ?: -1
+    fun downloadProgress(query: String): Int = downloadProgress[query] ?: DownloadLedger.snapshot().firstOrNull{it.song.url==query&&it.pending}?.percent ?: -1
 
     /** Snapshot of the currently-downloading tracks paired with their percent (0..100). */
     fun downloadingSnapshot(): List<Pair<io.github.unidentified24.spock.data.entity.SongsModel, Int>> =
-        downloadingSongs.entries.map { (q, song) -> song to (downloadProgress[q] ?: 0) }
+        (DownloadLedger.snapshot().filter{it.pending}.map{it.song to it.percent}+downloadingSongs.entries.map { (q, song) -> song to (downloadProgress[q] ?: 0) }).distinctBy{it.first.id}
 
     // Last download failure reason, surfaced to the user as a Toast for diagnosis.
     @Volatile var lastDownloadError: String? = null
     private val failures=java.util.concurrent.ConcurrentHashMap<String,Pair<io.github.unidentified24.spock.data.entity.SongsModel,String>>()
-    fun failedSnapshot()=failures.values.toList()
-    fun dismissFailure(query:String){failures.remove(query)}
+    fun failedSnapshot()=DownloadLedger.snapshot().filter{it.state==DownloadState.FAILED}.map{it.song to it.error}
+    fun dismissFailure(query:String){DownloadLedger.dismiss(query);notifyChanged()}
     private val errors=java.util.concurrent.ConcurrentHashMap<String,String>()
     private fun recordError(query:String,message:String){errors[query]=message;lastDownloadError=message}
     private suspend fun <T> attempt(block:suspend ()->T):T? = try{block()}catch(cancelled:CancellationException){throw cancelled}catch(_:Exception){null}
     private val owners=java.util.concurrent.ConcurrentHashMap<String,LookupConnections>()
-    fun cancel(query:String){owners[query]?.close();jobs[query]?.cancel()}
+    fun cancel(query:String){DownloadLedger.cancel(query);interrupt(query);notifyChanged()}
+    fun pause(query:String){DownloadLedger.pause(query);interrupt(query);notifyChanged()}
+    fun resume(query:String,now:Boolean=false){DownloadLedger.resume(query,now);DownloadScheduler.kick(context());notifyChanged()}
+    fun prioritize(query:String){DownloadLedger.prioritize(query);DownloadScheduler.kick(context());notifyChanged()}
+    fun pausedSnapshot()=DownloadLedger.snapshot().filter{it.state==DownloadState.PAUSED}
+    private var lastContext:Context?=null
+    private fun context()=lastContext ?: io.github.unidentified24.spock.MyApplication.instance
+    private val completions=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.CopyOnWriteArrayList<(Boolean)->Unit>>()
+    private val taskProfiles=java.util.concurrent.ConcurrentHashMap<String,String>()
+    private val progressAt=java.util.concurrent.ConcurrentHashMap<String,Long>()
+    private fun notifyChanged(){android.os.Handler(android.os.Looper.getMainLooper()).post{onDownloadsChanged?.invoke()}}
+    fun deliverCompletion(query:String,ok:Boolean){val handlers=completions.remove(query).orEmpty();scope.launch(Dispatchers.Main){handlers.forEach{runCatching{it(ok)}};onDownloadsChanged?.invoke()}}
+    fun interrupt(query:String){owners[query]?.close();jobs[query]?.cancel()}
+    fun interruptAll(){owners.values.forEach{it.close()};jobs.values.forEach{it.cancel()}}
+    private fun reportProgress(query:String,percent:Int){
+        downloadProgress[query]=percent
+        val now=android.os.SystemClock.elapsedRealtime()
+        if(now-(progressAt[query] ?: 0)>=800||percent>=99){progressAt[query]=now;DownloadLedger.progress(query,percent,profile=taskProfiles[query] ?: SessionIdentity.id);notifyChanged()}
+    }
 
 
     // googlevideo stream URLs 403 without a browser User-Agent and need redirects
@@ -81,7 +101,7 @@ object Downloads {
      * file was written. Falls back gracefully if the server ignores Range (HTTP 200).
      */
     private fun httpDownloadRanged(url:String,tmpFile:java.io.File,query:String):Boolean = try {
-        RangedTransfer.copy(url,tmpFile,::openDownloadConn,{pct->downloadProgress[query]=pct;onDownloadsChanged?.invoke()},LookupConnections::checkActive)
+        RangedTransfer.copy(url,tmpFile,::openDownloadConn,{pct->reportProgress(query,pct)},LookupConnections::checkActive,resume=true)
         true
     } catch(cancelled:CancellationException){throw cancelled}
       catch(error:Exception){recordError(query,error.message ?: "Download failed");false}
@@ -89,7 +109,13 @@ object Downloads {
     /** Download every track in a list (album/playlist). Each song dedupes and
      *  reports its own progress via the existing per-song machinery. */
     fun downloadAll(songs: List<io.github.unidentified24.spock.data.entity.SongsModel>, context: Context) {
-        songs.distinctBy{it.id}.forEach { downloadSong(it, context) }
+        lastContext=context.applicationContext
+        val unique=songs.distinctBy{it.id}.filter{it.url.isNotBlank()}
+        unique.forEach{downloading.add(it.url);downloadingSongs[it.url]=it}
+        scope.launch {
+            try{enqueueAll(unique,context)}catch(error:Exception){lastDownloadError=error.message ?: "Couldn't save the download queue"}
+            finally{unique.forEach{downloading.remove(it.url);downloadingSongs.remove(it.url)};notifyChanged()}
+        }
     }
 
     private val jobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
@@ -98,9 +124,14 @@ object Downloads {
      * Stop every pending download. Tracks still waiting for a slot stop at once; the
      * active transfers have their owned connections closed as well.
      */
-    fun cancelAll() {
-        owners.values.forEach{it.close()};jobs.values.forEach { it.cancel() }
-        onDownloadsChanged?.invoke()
+    fun cancelAll() {DownloadLedger.cancelAll();interruptAll();DownloadScheduler.stop(context());notifyChanged()}
+    suspend fun enqueueAll(songs:List<io.github.unidentified24.spock.data.entity.SongsModel>,context:Context,now:Boolean=false,priority:Int=0):Int=withContext(Dispatchers.IO){
+        lastContext=context.applicationContext;DownloadLedger.initialize(context)
+        val saved=io.github.unidentified24.spock.data.preferences.getDownloadedSongs(context).map{it.id}.toSet()
+        val rules=FeatureSettings.value.downloads
+        val due=if(now)0L else DownloadPolicy.nextWindow(System.currentTimeMillis(),rules.scheduleMinute)
+        val count=DownloadLedger.enqueue(songs.filter{it.id !in saved},due,priority)
+        DownloadScheduler.kick(context);notifyChanged();count
     }
 
     // A whole playlist at once floods the sources with lookups and gets rate limited.
@@ -123,45 +154,39 @@ object Downloads {
      * playback. Runs on the IO scope; invokes [onComplete] (main thread) with whether
      * it succeeded. No-op if it's already downloaded or downloading.
      */
-    fun downloadSong(
-        song: io.github.unidentified24.spock.data.entity.SongsModel,
-        context: Context,
-        onComplete: (Boolean) -> Unit = {},
-    ) {
-        val appContext = context.applicationContext
-        val query = song.url
-        if (query.isBlank() ||
-            io.github.unidentified24.spock.data.preferences.isDownloaded(appContext, song.id.toString()) ||
-            !downloading.add(query)
-        ) return
+    fun downloadSong(song:io.github.unidentified24.spock.data.entity.SongsModel,context:Context,onComplete:(Boolean)->Unit={}) {
+        if(song.url.isBlank())return
+        lastContext=context.applicationContext
+        if(io.github.unidentified24.spock.data.preferences.isDownloaded(context,song.id.toString())){scope.launch(Dispatchers.Main){onComplete(true)};return}
+        completions.getOrPut(song.url){java.util.concurrent.CopyOnWriteArrayList()}.add(onComplete)
+        downloadAll(listOf(song),context)
+    }
+    data class TransferOutcome(val success:Boolean,val error:String="")
+    suspend fun runPersisted(task:DownloadTask,context:Context):TransferOutcome {
+        val song=task.song;val query=song.url;lastContext=context.applicationContext
         SongPlayer.registerLossless(listOf(query to song.spotifyTrackId))
         SongPlayer.registerDuration(listOf(query to song.durationMs))
         SongPlayer.registerExplicit(listOf(query to song.explicit))
         SongPlayer.registerMetadata(listOf(query to SongPlayer.TrackMatchMetadata(song.title,song.singer,song.album)))
-        downloadingSongs[query] = song
-        downloadProgress[query] = 0
-        onDownloadsChanged?.invoke()
-        lastDownloadError = null
-        failures.remove(query);errors.remove(query)
-        val owner=LookupConnections();owners[query]=owner
-        val job=scope.launch(start=CoroutineStart.LAZY) {
-            var ok=false;var cancelled=false
-            try {ok=withContext(owner){downloadSlots.withPermit{downloadToFile(song,appContext)}}}
-            catch(error:CancellationException){cancelled=true;throw error}
-            catch(error:Exception){recordError(query,error.message ?: "Unexpected download failure")}
-            finally {
-                owner.close();owners.remove(query);jobs.remove(query);downloading.remove(query);downloadProgress.remove(query);downloadingSongs.remove(query)
-                if(!ok && !cancelled)failures[query]=song to (errors[query] ?: "No downloadable audio source responded")
-                errors.remove(query)
-                val dir=java.io.File(appContext.filesDir,"downloads")
-                listOf("part","flacpart","dzpart").forEach{java.io.File(dir,"${song.id}.$it").delete()}
-                withContext(NonCancellable+Dispatchers.Main){onDownloadsChanged?.invoke();onComplete(ok)}
+        errors.remove(query);taskProfiles[query]=task.profileId
+        val owner=LookupConnections();owners[query]=owner;jobs[query]=currentCoroutineContext().job
+        return try {
+            val ok=withContext(Dispatchers.IO+owner){downloadToFile(song,context.applicationContext)}
+            TransferOutcome(ok,if(ok)"" else errors[query] ?: "No downloadable audio source responded")
+        }catch(cancelled:CancellationException){throw cancelled}
+        catch(error:Exception){TransferOutcome(false,error.message ?: "Download couldn't finish")}
+        finally{
+            owner.close();owners.remove(query);jobs.remove(query);downloadProgress.remove(query);progressAt.remove(query);taskProfiles.remove(query);errors.remove(query)
+            if(DownloadLedger.get(song.id,task.profileId)?.state==DownloadState.CANCELLED){
+                val dir=java.io.File(context.filesDir,"downloads");listOf("part","flacpart","dzpart","scpart").forEach{java.io.File(dir,"${song.id}.$it").delete()}
             }
+            notifyChanged()
         }
-        jobs[query]=job;job.start()
     }
 
     private fun commitFile(context:Context,song:io.github.unidentified24.spock.data.entity.SongsModel,tmp:java.io.File,out:java.io.File):Boolean {
+        LookupConnections.checkActive()
+        if(taskProfiles[song.url]?.let{it!=SessionIdentity.id}==true)throw CancellationException("Profile changed")
         if(!OfflineFiles.audioHeader(tmp)){recordError(song.url,"Downloaded response was not a supported audio file");tmp.delete();return false}
         val reader=android.media.MediaMetadataRetriever()
         try {
@@ -170,8 +195,7 @@ object Downloads {
             if(duration>0 && song.durationMs>0 && duration<song.durationMs*.70){recordError(song.url,"Source returned only a preview");tmp.delete();return false}
         } catch(_:Exception) { /* Some valid containers cannot be read by Android's metadata reader. */ }
           finally {runCatching{reader.release()}}
-        if(!tmp.renameTo(out)){recordError(song.url,"Couldn't save audio");tmp.delete();return false}
-        io.github.unidentified24.spock.data.preferences.addDownload(context,song,out.path)
+        if(!DownloadStorage.finish(context,song,tmp,out)){recordError(song.url,"Couldn't save audio. Check free space and your download storage limit.");return false}
         return true
     }
 

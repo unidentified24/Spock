@@ -117,6 +117,7 @@ fun StatsScreen(navController:NavController) {
         itemsIndexed(story.topArtists) {i,pair->StoryRank(i,pair.first,pair.second,story.topArtists.first().second)}
         item {StudioSection("Your heavy rotation")}
         itemsIndexed(story.topSongs) {i,pair->StoryRank(i,pair.first,pair.second,story.topSongs.first().second)}
+        item{StatsInsights()}
         if(story.songs==0) item {StudioEmpty("Your story starts with a song","Listen to some music and your own rankings will appear here. No made-up stats.")}
     }
 }

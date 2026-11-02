@@ -27,6 +27,7 @@ object SpotifyTokenProvider {
 
     /** [force] skips the cached token and the failure backoff (fresh login). */
     suspend fun ensureToken(context: Context, force: Boolean = false): Boolean = mutex.withLock {
+        if(io.github.unidentified24.spock.features.FeatureSettings.value.downloads.offlineOnly)return@withLock false
         val now = System.currentTimeMillis()
         if (!force && Spotify.accessToken != null && now < expiresAtMs - 60_000L) {
             return@withLock true
