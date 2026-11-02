@@ -9,6 +9,7 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -28,39 +29,38 @@ class MyApplication : Application(){
     override fun onCreate() {
         super.onCreate()
         instance = this
-        io.github.unidentified24.spock.data.api.LyricsApi.initialize(this)
-        io.github.unidentified24.spock.features.FeatureSettings.initialize(this)
-        io.github.unidentified24.spock.features.SessionIdentity.initialize(this)
-        io.github.unidentified24.spock.features.library.LibraryStore.initialize(this)
-        io.github.unidentified24.spock.features.library.QueueArchive.initialize(this)
-        io.github.unidentified24.spock.features.discovery.DiscoveryHistory.initialize(this)
-        io.github.unidentified24.spock.features.downloads.DownloadLedger.initialize(this)
-        io.github.unidentified24.spock.features.LocalFolderScan.schedule(this)
-        io.github.unidentified24.spock.data.backup.AutomaticBackup.schedule(this)
-        io.github.unidentified24.spock.features.LauncherShortcuts.publish(this)
+        installCrashCapture()
+        initializeSafely("lyrics cache") { io.github.unidentified24.spock.data.api.LyricsApi.initialize(this) }
+        initializeSafely("settings") { io.github.unidentified24.spock.features.FeatureSettings.initialize(this) }
+        initializeSafely("profile") { io.github.unidentified24.spock.features.SessionIdentity.initialize(this) }
+        initializeSafely("library") { io.github.unidentified24.spock.features.library.LibraryStore.initialize(this) }
+        initializeSafely("queue history") { io.github.unidentified24.spock.features.library.QueueArchive.initialize(this) }
+        initializeSafely("discovery history") { io.github.unidentified24.spock.features.discovery.DiscoveryHistory.initialize(this) }
+        initializeSafely("download history") { io.github.unidentified24.spock.features.downloads.DownloadLedger.initialize(this) }
+        initializeSafely("local music scan") { io.github.unidentified24.spock.features.LocalFolderScan.schedule(this) }
+        initializeSafely("automatic backup") { io.github.unidentified24.spock.data.backup.AutomaticBackup.schedule(this) }
+        initializeSafely("home shortcuts") { io.github.unidentified24.spock.features.LauncherShortcuts.publish(this) }
         appScope.launch {
-            io.github.unidentified24.spock.features.downloads.DownloadScheduler.kick(this@MyApplication)
-            io.github.unidentified24.spock.features.downloads.SmartOffline.schedule(this@MyApplication)
-        }
-        val previousCrashHandler=Thread.getDefaultUncaughtExceptionHandler()
-        if(previousCrashHandler!=null)Thread.setDefaultUncaughtExceptionHandler{thread,error->
-            runCatching {
-                val note=error.javaClass.simpleName+"\n"+error.stackTrace.take(10).joinToString("\n"){"${it.className}.${it.methodName}:${it.lineNumber}"}
-                getSharedPreferences("diagnostics",0).edit().putString("last_crash",note).commit()
-            }
-            previousCrashHandler.uncaughtException(thread,error)
+            initializeSafely("download queue") { io.github.unidentified24.spock.features.downloads.DownloadScheduler.kick(this@MyApplication) }
+            initializeSafely("offline music schedule") { io.github.unidentified24.spock.features.downloads.SmartOffline.schedule(this@MyApplication) }
         }
         appScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(250)
-                val sample = kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    val player = io.github.unidentified24.spock.di.SongPlayer
-                    val state = io.github.unidentified24.spock.di.ListeningState.current
-                    state?.let { player.isPlaying() to io.github.unidentified24.spock.data.preferences.HistoryEntry(
-                        System.currentTimeMillis(), it.songId.value, it.title.value, it.singer.value, it.album.value)
+                try {
+                    val sample = kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        val player = io.github.unidentified24.spock.di.SongPlayer
+                        val state = io.github.unidentified24.spock.di.ListeningState.current
+                        state?.let { player.isPlaying() to io.github.unidentified24.spock.data.preferences.HistoryEntry(
+                            System.currentTimeMillis(), it.songId.value, it.title.value, it.singer.value, it.album.value)
+                        }
                     }
+                    sample?.let { (playing, track) -> io.github.unidentified24.spock.data.preferences.ListeningMeter.tick(this@MyApplication, playing, track) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Timber.e(error, "Playback statistics sampling failed; keeping Spock available")
                 }
-                sample?.let { (playing, track) -> io.github.unidentified24.spock.data.preferences.ListeningMeter.tick(this@MyApplication, playing, track) }
             }
         }
         if (BuildConfig.DEBUG && Timber.forest().isEmpty()) {
@@ -74,7 +74,7 @@ class MyApplication : Application(){
             android.util.Log.d("SpotifyCanvas", "[$level] $msg")
         }
         // Required by the ported YouTube streaming flow (cipher/PoToken WebViews).
-        CipherDeobfuscator.initialize(this)
+        initializeSafely("streaming setup") { CipherDeobfuscator.initialize(this) }
 
         // Locale + visitorData must be set or the player can't mint a PoToken,
         // and googlevideo rejects the stream URL with HTTP 403 (tracks stuck at 0:00).
@@ -111,4 +111,36 @@ class MyApplication : Application(){
         appScope.launch { runCatching { api.getAlbums().collect {} } }
         appScope.launch { runCatching { api.getArtists().collect {} } }
     }
+
+    private fun initializeSafely(label: String, initialize: () -> Unit) {
+        try {
+            initialize()
+        } catch (error: Exception) {
+            Timber.e(error, "Spock startup component failed: %s", label)
+            runCatching {
+                getSharedPreferences("diagnostics", MODE_PRIVATE).edit()
+                    .putString("startup_error", "$label: ${error.javaClass.simpleName}: ${error.message.orEmpty().take(300)}")
+                    .apply()
+            }
+        }
+    }
+
+    private fun installCrashCapture() {
+        val previousCrashHandler = Thread.getDefaultUncaughtExceptionHandler() ?: return
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                val trace = generateSequence(error as Throwable?) { it.cause }
+                    .take(4)
+                    .joinToString("\nCaused by: ") { cause ->
+                        cause.javaClass.name + ": " + cause.message.orEmpty().take(300) + "\n" +
+                            cause.stackTrace.take(18).joinToString("\n") { "${it.className}.${it.methodName}:${it.lineNumber}" }
+                    }
+                getSharedPreferences("diagnostics", MODE_PRIVATE).edit()
+                    .putString("last_crash", "${thread.name}\n$trace".take(8_000))
+                    .commit()
+            }
+            previousCrashHandler.uncaughtException(thread, error)
+        }
+    }
 }
+
