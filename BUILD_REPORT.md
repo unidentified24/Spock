@@ -1,11 +1,19 @@
-# Spock 3.0 — final validation report
+# Spock 3.0.1 — startup crash fix report
 
-Version name: 3.0  
-Version code: 30  
+Version name: 3.0.1  
+Version code: 31  
 UI version: 3.0  
 Application ID: `io.github.unidentified24.spock`
 
-The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.apk`. A source-only archive is available at `outputs/Spock-3.0-source.zip`. The original `Documents/Spock` folder was not edited.
+The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.1.apk`. A source-only archive is available at `outputs/Spock-3.0-source.zip`. The original `Documents/Spock` folder was not edited.
+
+## Startup crash hardening
+
+- Moved uncaught-crash capture to the beginning of application startup and made the saved report include the exception chain and stack frames.
+- Isolated optional startup services so a settings/cache/WorkManager failure is recorded instead of immediately terminating the app.
+- Protected periodic listening-stat sampling so an intermittent storage/player error does not kill the process.
+- Added startup errors to **Settings → About → Copy playback report** for easier diagnosis if a crash persists.
+- Device reproduction remains unavailable: no Android device is attached and the configured emulator does not register with the local debug bridge. The precise device-side crash cause therefore remains unconfirmed.
 
 ## Playback continuity and local music
 
@@ -27,5 +35,5 @@ The signed release APK is in `Apk/Spock.apk` and `Apk/Spock-3.0.apk`. A source-o
 
 ## APK checksum
 
-SHA-256: `078265580426B6F90A955B07891E4097ADA7629CBBEEB0785D7E7068AEC8DCB1`
+SHA-256: `354C2DFFBE6F6957A3EE8F6A95FEE064731D655A4D316F0AF85B91C5A6FBD8E0`
 
